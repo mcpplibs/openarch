@@ -1,5 +1,4 @@
 // openarch.trap — the aarch64 backend.
-module;
 
 namespace {
 
@@ -32,7 +31,7 @@ inline unsigned long long read_far() noexcept {
 
 }  // namespace
 
-module openarch.trap;
+#include <openarch/abi.h>
 
 extern "C" {
 extern unsigned char arch_vector_table[];   // the 2 KiB table in trap.S
@@ -40,7 +39,7 @@ extern unsigned char arch_vector_table[];   // the 2 KiB table in trap.S
 
 namespace {
 
-arch::trap_handler g_handler = nullptr;
+arch_trap_handler_fn g_handler = nullptr;
 
 // ⭐ THE CLASSIFICATION READS TWO SOURCES, AND riscv NEEDS ONLY ONE.
 //
@@ -50,23 +49,22 @@ arch::trap_handler g_handler = nullptr;
 // synchronous exception actually was. A backend that read only `ESR_EL1` would
 // classify every interrupt as whatever `ESR_EL1` happened to hold from the last
 // synchronous trap, which is the kind of defect that works until it does not.
-arch::trap_kind classify(unsigned long long slot, unsigned long long esr) noexcept {
-    using k = arch::trap_kind;
-    switch (slot & 3ULL) {
-        case 1: case 2: return k::interrupt;   // IRQ, FIQ
-        case 3:         return k::other;       // SError: asynchronous, and not
+int classify(unsigned long long slot, unsigned long long esr) noexcept {
+        switch (slot & 3ULL) {
+        case 1: case 2: return 4;   // IRQ, FIQ
+        case 3:         return 5;       // SError: asynchronous, and not
                                                // an interrupt a handler masks
         default:        break;                 // synchronous; ask ESR_EL1
     }
     switch ((esr >> kEcShift) & kEcMask) {
-        case kEcBrk:                                        return k::breakpoint;
+        case kEcBrk:                                        return 0;
         case kEcUnknown:
-        case kEcIllegalState:                               return k::illegal;
+        case kEcIllegalState:                               return 2;
         case kEcPcAlignment:
-        case kEcSpAlignment:                                return k::unaligned;
+        case kEcSpAlignment:                                return 3;
         case kEcInstrAbortLo: case kEcInstrAbortEq:
-        case kEcDataAbortLo:  case kEcDataAbortEq:          return k::page_fault;
-        default:                                            return k::other;
+        case kEcDataAbortLo:  case kEcDataAbortEq:          return 1;
+        default:                                            return 5;
     }
 }
 
@@ -74,9 +72,9 @@ arch::trap_kind classify(unsigned long long slot, unsigned long long esr) noexce
 
 // Called by the common path in trap.S. `slot` is the vector index the hardware
 // selected, which no register records.
-extern "C" void arch_trap_dispatch(arch::trap_frame* f,
-                                   unsigned long long slot) noexcept {
-    static_assert(sizeof(arch::trap_frame) == 32,
+extern "C" void arch_trap_dispatch(arch_trap_frame* f,
+                                   unsigned long long slot) {
+    static_assert(sizeof(arch_trap_frame) == 32,
                   "trap.S reserves 32 bytes above the saved registers");
 
     const auto esr = read_esr();
@@ -87,21 +85,20 @@ extern "C" void arch_trap_dispatch(arch::trap_frame* f,
     f->cause = esr | (slot << 32);
     f->pc    = read_elr();
     f->kind  = classify(slot, esr);
-    f->addr  = (f->kind == arch::trap_kind::page_fault
-                || f->kind == arch::trap_kind::unaligned) ? read_far() : 0;
+    f->addr  = (f->kind == 1
+                || f->kind == 3) ? read_far() : 0;
 
     // Always four. aarch64 has one instruction width, which is why this field
     // looked unnecessary until riscv showed otherwise.
     f->instr_len = 4;
 
-    if (g_handler) g_handler(*f);
+    if (g_handler) g_handler(f);
 
     write_elr(f->pc);
 }
 
-namespace arch {
 
-trap_handler set_handler(trap_handler h) noexcept {
+extern "C" arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h) {
     const auto prev = g_handler;
     g_handler = h;
     const auto base = reinterpret_cast<unsigned long long>(arch_vector_table);
@@ -113,7 +110,7 @@ trap_handler set_handler(trap_handler h) noexcept {
     return prev;
 }
 
-void enable_interrupts(bool on) noexcept {
+extern "C" void arch_trap_enable_interrupts(int on) {
     // DAIF bit 1 (I) masks IRQ; `msr daifclr` clears mask bits, `daifset` sets
     // them. The sense is inverted relative to riscv's `mstatus.MIE`, which is
     // an enable rather than a mask — one more place the two machines say the
@@ -122,10 +119,9 @@ void enable_interrupts(bool on) noexcept {
     else    asm volatile("msr daifset, #2" ::: "memory");
 }
 
-bool interrupts_enabled() noexcept {
+extern "C" int arch_trap_interrupts_enabled(void) {
     unsigned long long v;
     asm volatile("mrs %0, daif" : "=r"(v));
-    return (v & (1ULL << 7)) == 0;   // I bit clear means enabled
+    return (v & (1ULL << 7)) == 0 ? 1 : 0;   // I bit clear means enabled
 }
 
-}  // namespace arch

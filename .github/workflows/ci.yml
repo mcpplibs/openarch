@@ -102,8 +102,12 @@ jobs:
           # Twice, the first allowed to fail: the toolchain payload is installed
           # during a build, so the first build on a machine that has never
           # targeted this triple is the one that installs it.
-          mcpp build --target ${{ matrix.triple }} || true
-          mcpp build --target ${{ matrix.triple }}
+          # ⚠️ THE BACKEND, NOT THE WORKSPACE ROOT. Since 0.3.1 the root is a
+          # workspace and carries no sources of its own; building the backend
+          # for this target pulls the ABI it implements and is what the probe
+          # below will link against.
+          ( cd backends/${{ matrix.arch }} && mcpp build --target ${{ matrix.triple }} ) || true
+          ( cd backends/${{ matrix.arch }} && mcpp build --target ${{ matrix.triple }} )
 
       # ⚠️ THE THIRD ASSERTION IS THE ONE THAT CATCHES A HALF-CORRECT BACKEND.
       #
@@ -124,13 +128,30 @@ jobs:
       # The same source produced that output. Asserted rather than trusted: a
       # probe that had quietly grown a per-architecture branch would still pass
       # every line above, and the gate would be measuring two programs.
-      - name: The probe is one source, not two
+      - name: The probe is one source, and the layering is a directory tree
         run: |
+          set -euo pipefail
           test -f examples/switch/src/main.cpp
           if grep -qE '__riscv|__aarch64__|MCPP_TARGET_ARCH' examples/switch/src/main.cpp; then
             echo "the probe branches on the architecture, which is what it exists to avoid"
             exit 1
           fi
+
+          # ⚠️ THE SEPARATION IS ASSERTED, NOT TRUSTED TO THE DIRECTORY NAMES.
+          #
+          # Until 0.3.1 the backends lived under `src/arch/<arch>/` in the same
+          # package as the specification, and the layering was a convention held
+          # up by a path. The split made it a dependency graph; these two checks
+          # make it a test.
+          if grep -rqE '\basm\b|__asm' spec/src; then
+            echo "the specification contains an instruction; it must not"
+            exit 1
+          fi
+          if grep -rq 'export module' backends; then
+            echo "a backend exports a module; it must reach the specification only through the ABI"
+            exit 1
+          fi
+          echo "spec owns modules and no instruction; backends own instructions and no module"
 
   # ---------------------------------------------------------------------------
   # The half no emulator can check.
@@ -198,6 +219,7 @@ jobs:
       # zero foreign symbols in either image — and a host build that calls both
       # gets both, with nothing to activate.
       - name: Both encoders compile here and agree
+        working-directory: spec
         run: mcpp test
 
   # ---------------------------------------------------------------------------

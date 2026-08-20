@@ -91,7 +91,84 @@ a user page executable by the kernel, which riscv64 gets structurally and
 aarch64 needs two explicit bits to achieve. No single-target build could make
 that comparison.
 
+## The repository layout, and why it is three packages
+
+```
+openarch/
+├── mcpp.toml              [workspace]
+├── abi/                   the contract — headers only, depends on nothing
+│   ├── mcpp.toml          openarch-abi
+│   └── include/openarch/
+│       ├── abi.h          what a backend implements
+│       └── pte_encode.h   the pure entry encoders, host-callable
+├── spec/                  the C++ modules over the contract
+│   ├── mcpp.toml          openarch          → depends on openarch-abi
+│   ├── src/               context.cppm  trap.cppm  cpu.cppm  pte.cppm
+│   └── tests/             the encoders, asserted on the host
+├── backends/              one package per instruction set
+│   ├── riscv64/mcpp.toml  openarch-riscv64  → depends on openarch-abi
+│   └── aarch64/mcpp.toml  openarch-aarch64  → depends on openarch-abi
+└── examples/switch/       one probe source, run on every machine
+```
+
+⭐ **`spec/` owns every module and no instruction; `backends/` own instructions
+and export no module.** Both are asserted in CI rather than left to the
+directory names — until 0.3.1 the backends lived under `src/arch/<arch>/` in the
+same package, and the layering was a convention held up by a path.
+
+### What the split forced
+
+A module implementation unit must live in the same package as the module it
+implements. `openarch.pte`, `openarch.trap` and `openarch.cpu` were implemented
+that way, so separating the packages was impossible until their boundary became
+a **C ABI** — which is what `openarch.context` had always used, and what openkal
+uses throughout.
+
+⚠️ The gain is not tidiness. A specification whose boundary is a C ABI can be
+implemented by something that is not a C++ module: an assembler file, a vendor's
+blob, a second backend for the same instruction set at a different privilege
+level. riscv needs that last one — the backend here traps into M-mode, and a
+kernel under SBI traps into S-mode, which is the same mechanism with a different
+prefix on every register.
+
+### Why `abi/` is its own package
+
+The first attempt put the header in `spec/` and had the backends depend on it,
+while `spec/` pulled a backend through a `cfg` dependency so that a consumer
+would never name its own architecture. mcpp rejected that:
+
+```
+error: dependency cycle through package 'openarch'
+       while computing its build-cache key
+```
+
+The cycle is real. Giving up automatic backend selection would have made every
+consumer write its architecture down; copying the header into each backend would
+have created two files that must agree with no mechanism to make them. The
+contract belongs to neither side, and once it is its own package both may depend
+on it and neither depends on the other.
+
+### What a consumer writes
+
+```toml
+[dependencies]
+openarch = "0.3.1"
+```
+
+Nothing about the architecture. `spec/mcpp.toml` resolves the backend from the
+target:
+
+```toml
+[target.'cfg(all(arch = "riscv64", os = "none"))'.dependencies]
+openarch-riscv64 = { path = "../backends/riscv64" }
+```
+
+⚠️ `os = "none"` is part of the predicate. A hosted aarch64 build — a macOS
+runner, for instance — has an operating system already, and matching on the
+architecture alone once compiled ELF assembly for Mach-O.
+
 ## Why one repository
+
 
 openkal and openhal have open implementer sets and depend on third parties
 arriving. openarch's set is bounded and small, and nobody implements the

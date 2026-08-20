@@ -1,17 +1,15 @@
 // openarch.pte — the aarch64 binding, and the register the encoding depends on.
-module;
-#include "../../encode/pte_encode.h"
-module openarch.pte;
+#include <openarch/abi.h>
+#include <openarch/pte_encode.h>
 
-namespace arch {
 
-pte make_leaf(unsigned long long phys, perm p, memory_type mt, bool user) noexcept {
-    return pte{ aarch64::encode_leaf(phys, static_cast<int>(p),
-                                     static_cast<int>(mt), user) };
+extern "C" unsigned long long arch_pte_make_leaf(unsigned long long phys,
+                                                 int perm, int mt, int user) {
+    return arch::aarch64::encode_leaf(phys, perm, mt, user != 0);
 }
 
-bool          is_valid(pte e) noexcept { return aarch64::entry_valid(e.bits); }
-unsigned long long phys_of (pte e) noexcept { return aarch64::entry_phys(e.bits);  }
+extern "C" int arch_pte_valid(unsigned long long bits) { return arch::aarch64::entry_valid(bits) ? 1 : 0; }
+extern "C" unsigned long long arch_pte_phys(unsigned long long bits) { return arch::aarch64::entry_phys(bits); }
 
 // The canonical MAIR_EL1 layout the encoder's AttrIndx values index into.
 //
@@ -30,9 +28,8 @@ unsigned long long phys_of (pte e) noexcept { return aarch64::entry_phys(e.bits)
 // the new attributes apply to translations that follow. Without it the first
 // mappings installed after boot may be walked against the reset value of the
 // register, which is architecturally UNKNOWN.
-void install_memory_attributes() noexcept {
+extern "C" void arch_pte_install_memory_attributes(void) {
     constexpr unsigned long long kMair = 0x00FFUL;
     asm volatile("msr mair_el1, %0\n\tisb" :: "r"(kMair) : "memory");
 }
 
-}  // namespace arch

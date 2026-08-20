@@ -15,7 +15,7 @@
 // and compare them. The comparison is the point — several assertions below are
 // about the two encoders AGREEING, and no single-target build could make them.
 
-#include "../src/encode/pte_encode.h"
+#include <openarch/pte_encode.h>
 
 #include <cstdio>
 #include <cstdlib>

@@ -21,6 +21,8 @@
 // ⚠️ The names say what is guaranteed, not which instruction is emitted. A
 // caller that wants a specific encoding wants the architecture, not this layer.
 
+module;
+#include <openarch/abi.h>
 export module openarch.cpu;
 
 export namespace arch {
@@ -34,8 +36,8 @@ export namespace arch {
 // ⚠️ Undefined before a kernel sets it. Both machines leave it whatever reset
 // or the previous occupant left, so reading first and writing later is a way to
 // obtain a plausible-looking pointer to nothing.
-void* percpu() noexcept;
-void  set_percpu(void* p) noexcept;
+inline void* percpu() noexcept          { return ::arch_cpu_percpu(); }
+inline void  set_percpu(void* p) noexcept { ::arch_cpu_set_percpu(p); }
 
 // The four orderings both machines can state.
 enum class barrier {
@@ -60,6 +62,6 @@ enum class barrier {
     fetch,
 };
 
-void fence(barrier b) noexcept;
+inline void fence(barrier b) noexcept { ::arch_cpu_fence(static_cast<int>(b)); }
 
 }  // namespace arch

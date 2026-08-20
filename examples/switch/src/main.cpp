@@ -69,10 +69,14 @@ namespace {
 
 volatile int g_trapped = 0;
 
-void on_trap(arch::trap_frame& f) noexcept {
-    if (f.kind == arch::trap_kind::breakpoint) {
+// ⚠️ A POINTER, WHICH IS THE ABI'S SPELLING. The interface takes the C
+// contract's signature rather than wrapping it in a reference, because a
+// wrapper would need a thunk and a thunk would need a global in the module
+// interface that every importer instantiates.
+void on_trap(arch::trap_frame* f) {
+    if (arch::kind_of(*f) == arch::trap_kind::breakpoint) {
         g_trapped = 1;
-        f.pc += f.instr_len;
+        f->pc += f->instr_len;
     }
 }
 

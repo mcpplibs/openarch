@@ -1,78 +1,37 @@
 # openarch — the architecture-mechanism layer.
 #
-# ⚠️ ONE REPOSITORY, INTERFACES AND BACKENDS TOGETHER, AND THE REASON IS NOT
-# CONVENIENCE.
+# ⚠️ THE DIRECTORY TREE IS THE ARCHITECTURE, AND IT WAS NOT UNTIL 0.3.1.
 #
-# openkal and openhal have OPEN implementer sets: any operating system, any
-# device, and their success depends on third parties arriving. openarch's set is
-# bounded and small — x86_64, aarch64, riscv64, perhaps arm32 and loongarch —
-# and nobody implements "the aarch64 context switch" differently.
+# Until then the specification and both backends lived in one package, with the
+# backends under `src/arch/<arch>/`. That arrangement compiled, and it hid a
+# constraint: `openarch.pte`, `openarch.trap` and `openarch.cpu` were
+# implemented by MODULE IMPLEMENTATION UNITS, which C++ requires to live in the
+# same module — and therefore, here, in the same package. The layering was a
+# convention held up by a directory name.
 #
-# What follows is that the interface and its implementations must co-evolve.
-# This layer's gate is "the abstraction survives a second architecture", and the
-# only way to learn that the interface is wrong is to add one. Splitting the
-# repository would slow exactly the loop that decides whether the layer is
-# viable.
+# Splitting the packages made that constraint visible and forced the fix: every
+# backend now crosses into the specification through a C ABI
+# (`spec/include/openarch/abi.h`), which is what `openarch.context` already did
+# and what openkal has always done. The gain is not tidiness — it is that a
+# specification whose boundary is a C ABI can be implemented by something that
+# is not a C++ module, and one whose boundary is a C++ module cannot.
 #
-# The module boundary is kept regardless: the specification side owns every
-# module, backends contribute definitions and export nothing. A later split is
-# then mechanical rather than a redesign.
-[package]
-namespace   = "mcpplibs"
-name        = "openarch"
-version     = "0.3.0"
-description = "openarch: the architecture-mechanism layer — execution contexts, traps and address spaces, as one interface over several instruction sets"
-license     = "Apache-2.0"
-authors     = ["mcpplibs"]
-repo        = "https://github.com/mcpplibs/openarch"
-
-[build]
-# Backends are selected by the resolved target, so a build for one architecture
-# never compiles another's assembly. The engine needs no new axis for this.
-sources = ["src/*.cppm"]
-
-# ⚠️ THE INSTRUCTION SET IS SELECTED BY `cfg`, AND THERE IS NO FEATURE AXIS IN
-# THIS PACKAGE AT ALL. BOTH HALVES OF THAT ARE MEASURED RATHER THAN PREFERRED.
+#   abi/                   the contract. Headers only; depends on nothing.
+#   spec/                  the C++ modules over the contract. Owns every
+#                          module; owns no instruction.
+#   backends/<arch>/       one package per instruction set. Owns instructions;
+#                          exports no module.
+#   examples/switch/       one probe source, run on every machine.
 #
-# **Why not a feature for the ISA.** Which backend is correct is decided by the
-# target triple. A feature that selected a foreign one could only express a
-# mistake — the assembly would not assemble, or would assemble and not link. An
-# option whose only reachable states are "right" and "broken" is not an option.
-#
-# **Why not a feature for the interface set.** "Contexts but not page tables" is
-# a request for LESS, and mcpp features are additive and unified across the
-# dependency graph: a middle library activating one turns it on for a root that
-# never asked. A subset knob would be a promise the engine cannot keep.
-#
-# **Why not a feature for host-testable encoders, which is what this package
-# actually wanted.** Two measurements ended that design. A file named by any
-# feature belongs to that feature exclusively — with the feature inactive it is
-# not compiled even when a `cfg` block lists it explicitly, and the library
-# build still reports success because the missing definition only surfaces at
-# the consumer's link. And compiling both encoders unconditionally instead put
-# 450 bytes of the foreign one into a riscv64 image whose whole probe is about
-# 2000. `inline` in a header satisfies both without a knob: a target build
-# instantiates only what it calls (measured: zero foreign symbols in either
-# image), and a host build that calls both gets both.
-# ⚠️ `os = "none"` IS PART OF THE PREDICATE, AND LEAVING IT OUT WAS A DEFECT
-# THAT ONLY A macOS RUNNER COULD SHOW.
-#
-# The predicate was `cfg(arch = "...")` alone. On a HOST build the target is the
-# host, so on an arm64 macOS machine `arch = "aarch64"` matched and the backend's
-# assembly was compiled for Mach-O:
-#
-#     context.S:21:14: error: mach-o section specifier uses an unknown section type
-#
-# The assembly is ELF-shaped because every target this layer serves is. But the
-# deeper point is that the row should never have matched: openarch is what a
-# KERNEL asks of a machine, and a hosted aarch64 build has an operating system
-# already. `os = "none"` says that, and it is the same distinction the target
-# table draws.
-[target.'cfg(all(arch = "riscv64", os = "none"))'.build]
-sources = ["src/arch/riscv64/**"]
-
-[target.'cfg(all(arch = "aarch64", os = "none"))'.build]
-sources = ["src/arch/aarch64/**"]
-
-[targets.openarch]
-kind = "lib"
+# ⚠️ A backend is selected by the TARGET, not by the consumer. `spec/mcpp.toml`
+# pulls it through a `cfg` dependency, so a consumer writes `openarch = "..."`
+# and nothing about its own architecture — which is the property the
+# single-package layout had and which a split must not cost.
+[workspace]
+members = [
+    "abi",
+    "spec",
+    "backends/riscv64",
+    "backends/aarch64",
+    "examples/switch",
+]

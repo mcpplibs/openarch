@@ -3,7 +3,6 @@
 // The stub in trap.S saves registers and calls `arch_trap_dispatch`; everything
 // that can be C++ is here, so the classification is readable once rather than
 // encoded twice.
-module;
 
 // ⚠️ THE FRAME LAYOUT IS SHARED WITH ASSEMBLY AND IS THEREFORE ASSERTED.
 // trap.S hands a pointer to 32 bytes above the saved registers. A silent
@@ -41,35 +40,34 @@ inline unsigned long long read_mtval() noexcept {
 
 }  // namespace
 
-module openarch.trap;
+#include <openarch/abi.h>
 
 extern "C" void arch_trap_entry();   // the stub in trap.S
 
 namespace {
 
-arch::trap_handler g_handler = nullptr;
+arch_trap_handler_fn g_handler = nullptr;
 
-arch::trap_kind classify(unsigned long long cause) noexcept {
-    using k = arch::trap_kind;
-    if (cause & kCauseInterrupt) return k::interrupt;
+int classify(unsigned long long cause) noexcept {
+        if (cause & kCauseInterrupt) return 4;
     switch (cause) {
-        case kBreakpoint:                                   return k::breakpoint;
-        case kIllegalInstr:                                 return k::illegal;
+        case kBreakpoint:                                   return 0;
+        case kIllegalInstr:                                 return 2;
         case kInstrMisaligned:
         case kLoadMisaligned:
-        case kStoreMisaligned:                              return k::unaligned;
+        case kStoreMisaligned:                              return 3;
         case kInstrPageFault:
         case kLoadPageFault:
-        case kStorePageFault:                               return k::page_fault;
-        default:                                            return k::other;
+        case kStorePageFault:                               return 1;
+        default:                                            return 5;
     }
 }
 
 }  // namespace
 
 // Called by trap.S with a pointer to 32 bytes of stack for the frame.
-extern "C" void arch_trap_dispatch(arch::trap_frame* f) noexcept {
-    static_assert(sizeof(arch::trap_frame) == 32,
+extern "C" void arch_trap_dispatch(arch_trap_frame* f) {
+    static_assert(sizeof(arch_trap_frame) == 32,
                   "trap.S reserves 32 bytes above the saved registers");
 
     const auto cause = read_mcause();
@@ -79,8 +77,8 @@ extern "C" void arch_trap_dispatch(arch::trap_frame* f) noexcept {
     // ⚠️ `mtval` is only meaningful for the faults that produce an address.
     // Reporting it unconditionally would hand a caller the residue of an
     // earlier trap and let it look like an address.
-    f->addr  = (f->kind == arch::trap_kind::page_fault
-                || f->kind == arch::trap_kind::unaligned) ? read_mtval() : 0;
+    f->addr  = (f->kind == 1
+                || f->kind == 3) ? read_mtval() : 0;
 
     // ⚠️ The length is read from the instruction itself, not assumed. riscv
     // encodes it in the low bits: anything other than 0b11 there is a two-byte
@@ -92,7 +90,7 @@ extern "C" void arch_trap_dispatch(arch::trap_frame* f) noexcept {
         f->instr_len = ((half & 0x3u) == 0x3u) ? 4u : 2u;
     }
 
-    if (g_handler) g_handler(*f);
+    if (g_handler) g_handler(f);
 
     // The handler may have advanced `pc` — past a breakpoint, typically — and
     // resuming has to honour that. Writing it back unconditionally is simpler
@@ -100,9 +98,8 @@ extern "C" void arch_trap_dispatch(arch::trap_frame* f) noexcept {
     write_mepc(f->pc);
 }
 
-namespace arch {
 
-trap_handler set_handler(trap_handler h) noexcept {
+extern "C" arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h) {
     const auto prev = g_handler;
     g_handler = h;
     // ⚠️ Direct mode, not vectored. `mtvec`'s low two bits select the mode, and
@@ -114,16 +111,15 @@ trap_handler set_handler(trap_handler h) noexcept {
     return prev;
 }
 
-void enable_interrupts(bool on) noexcept {
+extern "C" void arch_trap_enable_interrupts(int on) {
     constexpr unsigned long long kMie = 1ULL << 3;   // mstatus.MIE
     if (on) asm volatile("csrs mstatus, %0" :: "r"(kMie) : "memory");
     else    asm volatile("csrc mstatus, %0" :: "r"(kMie) : "memory");
 }
 
-bool interrupts_enabled() noexcept {
+extern "C" int arch_trap_interrupts_enabled(void) {
     unsigned long long v;
     asm volatile("csrr %0, mstatus" : "=r"(v));
-    return (v & (1ULL << 3)) != 0;
+    return (v & (1ULL << 3)) != 0 ? 1 : 0;
 }
 
-}  // namespace arch

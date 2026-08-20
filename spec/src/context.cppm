@@ -35,6 +35,8 @@
 // the criterion for "zero cost" is that the emitted instruction sequence is
 // identical rather than that the call disappears.
 
+module;
+#include <openarch/abi.h>
 export module openarch.context;
 
 export namespace arch {
@@ -71,14 +73,23 @@ struct context {
     alignas(16) unsigned char storage[128];
 };
 
-extern "C" {
+// ⚠️ Declared in `<openarch/abi.h>` and re-exported here rather than declared
+// twice. The ABI header is what a backend implements; this module is what a C++
+// consumer imports, and the two must not be able to disagree.
+
+// ⚠️ WRAPPED RATHER THAN RE-EXPORTED. The ABI takes `void*` because a C
+// contract cannot name a C++ type; this module takes `context&` because a
+// caller should not be able to pass the wrong thing. The wrapper is the only
+// place that conversion happens, and it is `inline`, so it costs nothing.
 
 // Saves the current context into `from` and resumes `to`.
 //
 // Returns when something switches back to `from`. The first return therefore
 // happens in a different context from the call, which is why the assembly form
 // is load-bearing rather than an optimisation.
-void arch_context_switch(context& from, context& to) noexcept;
+inline void arch_context_switch(context& from, context& to) noexcept {
+    ::arch_context_switch(&from, &to);
+}
 
 // Prepares `ctx` so that switching to it begins executing `entry(arg)` on the
 // stack whose highest address is `stack_top`.
@@ -90,9 +101,9 @@ void arch_context_switch(context& from, context& to) noexcept;
 // ⚠️ `entry` must not return. There is no context to return TO: the initial
 // return address is a trampoline that has no caller. A kernel gives each task
 // an entry that ends by switching away.
-void arch_context_init(context& ctx, void (*entry)(void*), void* arg,
-                       void* stack_top) noexcept;
-
-}  // extern "C"
+inline void arch_context_init(context& ctx, void (*entry)(void*), void* arg,
+                              void* stack_top) noexcept {
+    ::arch_context_init(&ctx, entry, arg, stack_top);
+}
 
 }  // namespace arch

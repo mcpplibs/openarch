@@ -25,7 +25,7 @@ sources = ["src/machine_riscv64.cpp"]
 sources = ["src/machine_aarch64.cpp"]
 
 [dependencies]
-openarch = { path = "../.." }
+openarch = { path = "../../spec" }
 
 # ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
 #

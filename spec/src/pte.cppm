@@ -37,6 +37,8 @@
 // built by `make_leaf` is only correct for a CPU on which
 // `install_memory_attributes` has run. Stating it is the price of hiding it.
 
+module;
+#include <openarch/abi.h>
 export module openarch.pte;
 
 export namespace arch {
@@ -78,13 +80,17 @@ struct pte {
 // ⚠️ The entry is VALID and ACCESSED. Neither machine faults on a first touch
 // in the arrangement this layer serves, and leaving the accessed bit clear
 // costs a fault on every machine to record something nothing here reads.
-pte make_leaf(unsigned long long phys, perm p, memory_type mt, bool user) noexcept;
+inline pte make_leaf(unsigned long long phys, perm p, memory_type mt,
+                     bool user) noexcept {
+    return pte{ ::arch_pte_make_leaf(phys, static_cast<int>(p),
+                                     static_cast<int>(mt), user ? 1 : 0) };
+}
 
 // Whether an entry maps anything.
-bool is_valid(pte e) noexcept;
+inline bool is_valid(pte e) noexcept { return ::arch_pte_valid(e.bits) != 0; }
 
 // The physical address an entry maps, or zero if it maps nothing.
-unsigned long long phys_of(pte e) noexcept;
+inline unsigned long long phys_of(pte e) noexcept { return ::arch_pte_phys(e.bits); }
 
 // Programs whatever the machine needs before `memory_type` is meaningful.
 //
@@ -96,6 +102,6 @@ unsigned long long phys_of(pte e) noexcept;
 // ⚠️ Must run at EL1 or above on aarch64. There is no arrangement in which a
 // caller of this layer is not privileged, so this is a note rather than a
 // parameter.
-void install_memory_attributes() noexcept;
+inline void install_memory_attributes() noexcept { ::arch_pte_install_memory_attributes(); }
 
 }  // namespace arch

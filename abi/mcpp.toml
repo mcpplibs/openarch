@@ -1,0 +1,35 @@
+# openarch's ABI: the contract, and nothing that implements or wraps it.
+#
+# ⚠️ THIS PACKAGE EXISTS BECAUSE THE DEPENDENCY GRAPH SAID SO, NOT BECAUSE
+# THREE PACKAGES LOOK TIDIER THAN TWO.
+#
+# The first attempt at the split put the ABI header in the specification and had
+# the backends depend on it, while the specification pulled a backend through a
+# `cfg` dependency so that a consumer would never name its own architecture.
+# mcpp rejected that outright:
+#
+#     error: dependency cycle through package 'openarch'
+#           while computing its build-cache key
+#
+# The cycle is real and the error is correct. Breaking it by giving up automatic
+# backend selection would have made every consumer write its architecture down;
+# breaking it by copying the header into each backend would have created two
+# files that must agree and no mechanism to make them.
+#
+# ⭐ The contract belongs to neither side. It is not the C++ modules that wrap
+# it and not the instructions that implement it, and once it is its own package
+# both may depend on it and neither depends on the other.
+#
+# Headers only: no source, no target, no dependency of its own.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch-abi"
+version     = "0.3.1"
+description = "openarch's C ABI: the contract between the interface and an instruction set's backend"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
+[build]
+sources      = []
+include-dirs = ["include"]

@@ -36,6 +36,8 @@
 // something this interface does not offer, and should install its own
 // `VBAR_EL1`.
 
+module;
+#include <openarch/abi.h>
 export module openarch.trap;
 
 export namespace arch {
@@ -84,13 +86,18 @@ enum class trap_kind {
 //
 // The backend knows the answer and the caller cannot derive it, which is the
 // definition of something belonging in this frame.
-struct trap_frame {
-    unsigned long long pc;
-    unsigned long long addr;
-    unsigned long long cause;
-    trap_kind          kind;
-    unsigned           instr_len;   // bytes; 2 or 4 on riscv, always 4 on aarch64
-};
+// ⚠️ The C structure itself, aliased rather than restated. It is shared with
+// each backend's assembly, which reserves exactly `sizeof(arch_trap_frame)`
+// bytes; a second declaration here could drift from it and the symptom would be
+// a corrupted saved register rather than a compile error.
+using trap_frame = ::arch_trap_frame;
+
+// `kind` crosses the ABI as an int. This reads it back as the enumeration,
+// whose order the header states.
+inline trap_kind kind_of(const trap_frame& f) noexcept {
+    return static_cast<trap_kind>(f.kind);
+}
+
 
 // A handler runs with traps disabled and must return.
 //
@@ -99,7 +106,11 @@ struct trap_frame {
 // behaviour: this layer has no policy for an unhandled fault, and inventing one
 // — halting, printing, rebooting — would be a kernel's decision made in the
 // wrong place.
-using trap_handler = void (*)(trap_frame&) noexcept;
+// ⚠️ A POINTER RATHER THAN A REFERENCE, WHICH IS THE ABI'S SPELLING.
+// Wrapping it to take a reference would need a thunk, and a thunk needs state
+// in this module interface — a global that every importer would instantiate.
+// The ergonomic difference is `f->pc` against `f.pc`.
+using trap_handler = ::arch_trap_handler_fn;
 
 // Installs `h` as the machine's trap entry and returns the previous handler, or
 // null if none had been installed through this interface.
@@ -107,7 +118,7 @@ using trap_handler = void (*)(trap_frame&) noexcept;
 // On riscv64 this writes `stvec`. On aarch64 it writes `VBAR_EL1` with the
 // address of a table this layer owns. Both take effect immediately; neither
 // enables interrupts, which is `enable_interrupts` below.
-trap_handler set_handler(trap_handler h) noexcept;
+inline trap_handler set_handler(trap_handler h) noexcept { return ::arch_trap_set_handler(h); }
 
 // Whether asynchronous traps are delivered.
 //
@@ -115,7 +126,7 @@ trap_handler set_handler(trap_handler h) noexcept;
 // safe: install first, then enable. An interface that did both would make the
 // unsafe order unexpressible, which sounds like a service until a kernel needs
 // to install a handler while interrupts are already on.
-void enable_interrupts(bool on) noexcept;
-bool interrupts_enabled() noexcept;
+inline void enable_interrupts(bool on) noexcept { ::arch_trap_enable_interrupts(on ? 1 : 0); }
+inline bool interrupts_enabled() noexcept { return ::arch_trap_interrupts_enabled() != 0; }
 
 }  // namespace arch

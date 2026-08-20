@@ -6,6 +6,13 @@
 // and once in the assembly that consumes it, with a static assertion binding
 // the two.
 
+// ⚠️ `openarch/types.h` AND NOT `openarch/abi.h`. This file implements a
+// function the ABI declares, and it needs the ABI's WIDTHS rather than its
+// declarations — the register-file mirror below is this backend's own layout,
+// not something the contract names. Including the contract would compile and
+// would state a dependency that is not there.
+#include <openarch/types.h>
+
 extern "C" void arch_context_entry();   // the trampoline in context.S
 
 namespace {
@@ -15,9 +22,9 @@ namespace {
 // catches a size disagreement, and the field order is checked by the probe
 // actually running rather than by a comment.
 struct Saved {
-    unsigned long ra;
-    unsigned long sp;
-    unsigned long s[12];   // s0-s11
+    arch_u64 ra;
+    arch_u64 sp;
+    arch_u64 s[12];   // s0-s11
 };
 
 static_assert(sizeof(Saved) == 14 * 8,
@@ -36,15 +43,15 @@ extern "C" void arch_context_init(void* ctx, void (*entry)(void*), void* arg,
     // to do it: a kernel computing `base + size` has no reason to know this
     // architecture's alignment, and an unaligned stack fails in a way that
     // points nowhere near the cause.
-    auto top = reinterpret_cast<unsigned long>(stack_top) & ~15UL;
+    auto top = reinterpret_cast<arch_u64>(stack_top) & ~15UL;
 
-    s->ra   = reinterpret_cast<unsigned long>(&arch_context_entry);
+    s->ra   = reinterpret_cast<arch_u64>(&arch_context_entry);
     s->sp   = top;
     // s1 and s2 carry the entry point and its argument through the switch.
     // ⚠️ Not a0/a1: those are argument registers, and the switch does not
     // restore them — a0 holds `&from` on the way in.
     s->s[0] = 0;                                              // s0 (frame ptr)
-    s->s[1] = reinterpret_cast<unsigned long>(entry);          // s1
-    s->s[2] = reinterpret_cast<unsigned long>(arg);            // s2
+    s->s[1] = reinterpret_cast<arch_u64>(entry);          // s1
+    s->s[2] = reinterpret_cast<arch_u64>(arg);            // s2
     for (int i = 3; i < 12; ++i) s->s[i] = 0;
 }

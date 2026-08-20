@@ -1,0 +1,44 @@
+# openarch's x86_64 backend: instructions, and nothing else.
+#
+# ⚠️ THIS PACKAGE EXPORTS NO MODULE. It defines the C entry points declared in
+# `abi/include/openarch/abi.h` and is reached only through them. A consumer
+# never names it: the root manifest pulls it in through the `backend` feature,
+# whose target-conditional `feature-deps` row selects this one.
+#
+# ⚠️ THIS BACKEND ASSUMES LONG MODE IS ALREADY ENTERED, AND THAT ASSUMPTION IS
+# LARGER HERE THAN ON THE OTHER TWO MACHINES.
+#
+# riscv64 and aarch64 begin executing 64-bit instructions at reset, so a backend
+# for them starts from the machine's own initial state. x86_64 begins in 16-bit
+# real mode, and reaching the state this code runs in requires a GDT, a page
+# table, and a documented sequence of writes to `CR0`, `CR4` and `EFER`. None of
+# that is here, for the same reason no linker script is here: it is a property
+# of how a particular image is loaded, and a multiboot loader, a UEFI stub and a
+# `-kernel` image reach long mode by three different routes.
+#
+# What this backend requires on entry: long mode, a valid `GDT` with a 64-bit
+# code segment selected by `CS`, and a stack. It reads `CS` rather than assuming
+# a selector value, so the loader's choice of GDT layout is its own.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch-x86-64"
+version     = "0.4.0"
+description = "openarch's x86_64 backend: the instructions behind the ABI"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
+# ⭐ THE CAPABILITY, NOT THE PACKAGE NAME, IS WHAT A CONSUMER BINDS TO. The root
+# package's `backend` feature requires `openarch-backend` and names nobody; the
+# resolver binds the one provider in the graph. A consumer's own implementation
+# of `openarch/abi.h` declares the same line and is selected the same way.
+provides    = ["openarch-backend"]
+
+[build]
+sources = ["src/**"]
+
+[targets.openarch-x86-64]
+kind = "lib"
+
+[dependencies]
+openarch-abi = { path = "../../abi" }

@@ -38,7 +38,7 @@
 
 module;
 #include <openarch/abi.h>
-export module openarch.trap;
+export module mcpplibs.openarch.trap;
 
 export namespace arch {
 
@@ -49,13 +49,15 @@ export namespace arch {
 // `other`, whose numeric cause the caller can still read. riscv distinguishes
 // load faults from store faults and aarch64 does not report the direction in
 // the same field, so `page_fault` covers both and `addr` carries the address.
+// ⚠️ EACH ENUMERATOR IS DEFINED FROM THE C CONTRACT'S, NOT WRITTEN OUT AGAIN.
+// The two faces held the same table until 0.4.0 and agreed by inspection.
 enum class trap_kind {
-    breakpoint,      // a deliberate trap instruction
-    page_fault,      // a translation or permission failure
-    illegal,         // an instruction the machine will not execute
-    unaligned,       // an access the machine will not perform
-    interrupt,       // asynchronous; `cause` names the source
-    other,           // everything neither machine agrees about
+    breakpoint = ARCH_TRAP_BREAKPOINT,  // a deliberate trap instruction
+    page_fault = ARCH_TRAP_PAGE_FAULT,  // a translation or permission failure
+    illegal    = ARCH_TRAP_ILLEGAL,     // an instruction the machine will not execute
+    unaligned  = ARCH_TRAP_UNALIGNED,   // an access the machine will not perform
+    interrupt  = ARCH_TRAP_INTERRUPT,   // asynchronous; `cause` names the source
+    other      = ARCH_TRAP_OTHER,       // everything neither machine agrees about
 };
 
 // What the handler is told.
@@ -94,7 +96,14 @@ using trap_frame = ::arch_trap_frame;
 
 // `kind` crosses the ABI as an int. This reads it back as the enumeration,
 // whose order the header states.
-inline trap_kind kind_of(const trap_frame& f) noexcept {
+//
+// ⭐ `constexpr`, and it is the ONLY function in this layer that can be. Every
+// other one reaches a backend, whose definition is an instruction and is not
+// available to constant evaluation. This one touches no machine: it converts a
+// field a backend already wrote. Marking it says which side of that line it is
+// on, and lets `tests/faces.cpp` check the conversion on a host that has no
+// backend at all.
+constexpr trap_kind kind_of(const trap_frame& f) noexcept {
     return static_cast<trap_kind>(f.kind);
 }
 

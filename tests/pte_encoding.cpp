@@ -28,7 +28,7 @@ void check(bool ok, const char* what) {
     if (!ok) { std::printf("FAILED: %s\n", what); ++g_failed; }
 }
 
-void check_eq(unsigned long long got, unsigned long long want, const char* what) {
+void check_eq(arch_u64 got, arch_u64 want, const char* what) {
     if (got != want) {
         std::printf("FAILED: %s\n  want 0x%016lx\n  got  0x%016lx\n",
                     what, want, got);
@@ -40,8 +40,9 @@ void check_eq(unsigned long long got, unsigned long long want, const char* what)
 constexpr int kRead = 0, kReadWrite = 1, kReadExec = 2, kReadWriteExec = 3;
 constexpr int kNormal = 0, kDevice = 1;
 
-constexpr unsigned long long kRvPage = 0x80200000UL;   // where riscv `virt` has RAM
-constexpr unsigned long long kA64Page = 0x40200000UL;  // where aarch64 `virt` does
+constexpr arch_u64 kRvPage = 0x80200000UL;   // where riscv `virt` has RAM
+constexpr arch_u64 kA64Page = 0x40200000UL;  // where aarch64 `virt` does
+constexpr arch_u64 kX86Page = 0x00200000UL;  // where an x86 `-kernel` image sits
 
 // ── The exact encodings, derived from the manuals ───────────────────────────
 //
@@ -71,6 +72,17 @@ void exact_values() {
     check_eq(aarch64::encode_leaf(kA64Page, kReadWrite, kDevice, false),
              0x0060000000000000UL | kA64Page | 0x407UL,
              "aarch64 device read-write kernel page");
+
+    // x86_64 4-level leaf: P|RW|A|D = 0x63, plus NX in bit 63 because the
+    // mapping is not executable. PAT index 0, so none of PWT/PCD/PAT is set.
+    check_eq(x86_64::encode_leaf(kX86Page, kReadWrite, kNormal, false),
+             0x8000000000000000UL | kX86Page | 0x63UL,
+             "x86_64 normal read-write kernel page");
+
+    // Device: PAT index 1, which on this machine is the PWT bit alone.
+    check_eq(x86_64::encode_leaf(kX86Page, kReadWrite, kDevice, false),
+             0x8000000000000000UL | kX86Page | 0x6BUL,
+             "x86_64 device read-write kernel page");
 }
 
 // ── The properties both machines must satisfy ───────────────────────────────
@@ -96,13 +108,16 @@ void agreement() {
     for (const auto& c : cases) {
         const auto rv  = riscv64::encode_leaf(kRvPage,  c.perm, c.mt, c.user);
         const auto a64 = aarch64::encode_leaf(kA64Page, c.perm, c.mt, c.user);
+        const auto x86 = x86_64::encode_leaf(kX86Page,  c.perm, c.mt, c.user);
 
         // Every entry either maps its page or is not valid; there is no third
         // outcome, and a mis-shifted address field produces one.
         check(riscv64::entry_valid(rv),  "riscv64 entry is valid");
         check(aarch64::entry_valid(a64), "aarch64 entry is valid");
+        check(x86_64::entry_valid(x86),  "x86_64 entry is valid");
         check_eq(riscv64::entry_phys(rv),  kRvPage,  "riscv64 round-trips phys");
         check_eq(aarch64::entry_phys(a64), kA64Page, "aarch64 round-trips phys");
+        check_eq(x86_64::entry_phys(x86),  kX86Page, "x86_64 round-trips phys");
 
         (void)c.name;
     }
@@ -114,8 +129,8 @@ void agreement() {
     // written, and an encoder ported by analogy would omit it and produce a
     // machine on which user memory is kernel-executable. Nothing on riscv can
     // fail this check; it is here for the machine that can.
-    constexpr unsigned long long kPxn = 1ULL << 53;
-    constexpr unsigned long long kUxn = 1ULL << 54;
+    constexpr arch_u64 kPxn = 1ULL << 53;
+    constexpr arch_u64 kUxn = 1ULL << 54;
     for (int p = kRead; p <= kReadWriteExec; ++p) {
         const auto user = aarch64::encode_leaf(kA64Page, p, kNormal, true);
         check((user & kPxn) != 0,
@@ -126,7 +141,7 @@ void agreement() {
     }
 
     // Execution is denied unless it was asked for, on both machines.
-    constexpr unsigned long long kRvX = 1ULL << 3;
+    constexpr arch_u64 kRvX = 1ULL << 3;
     check((riscv64::encode_leaf(kRvPage, kReadWrite, kNormal, false) & kRvX) == 0,
           "riscv64 leaves X clear for a non-executable mapping");
     check((aarch64::encode_leaf(kA64Page, kReadWrite, kNormal, false) & kPxn) != 0,
@@ -155,8 +170,40 @@ void agreement() {
     // Nothing is a valid entry by accident.
     check(!riscv64::entry_valid(0),  "riscv64 zero is not a valid entry");
     check(!aarch64::entry_valid(0),  "aarch64 zero is not a valid entry");
+    check(!x86_64::entry_valid(0),   "x86_64 zero is not a valid entry");
     check_eq(riscv64::entry_phys(0), 0, "riscv64 invalid entry maps nothing");
     check_eq(aarch64::entry_phys(0), 0, "aarch64 invalid entry maps nothing");
+    check_eq(x86_64::entry_phys(0),  0, "x86_64 invalid entry maps nothing");
+
+    // ⭐ THE ASSERTION THE THIRD ARCHITECTURE EXISTS TO MAKE, AND THE ONE THAT
+    // RECORDS WHAT IT COULD NOT DO.
+    //
+    // The two checks above about kernel/user execution cannot be written for
+    // x86_64: it has ONE `NX` bit covering every privilege level, so "a user
+    // page is not kernel-executable" is not expressible in the entry at all.
+    // The rule is enforced by `CR4.SMEP`, which the backend's
+    // `install_memory_attributes` sets. What IS assertable here is that the
+    // encoder does not pretend otherwise — an executable user page and an
+    // executable kernel page differ only in `U/S`, and both leave `NX` clear.
+    constexpr arch_u64 kNx = 1ULL << 63;
+    constexpr arch_u64 kUs = 1ULL << 2;
+    const auto x_user = x86_64::encode_leaf(kX86Page, kReadExec, kNormal, true);
+    const auto x_kern = x86_64::encode_leaf(kX86Page, kReadExec, kNormal, false);
+    check((x_user & kNx) == 0 && (x_kern & kNx) == 0,
+          "x86_64 leaves NX clear for an executable mapping at either level");
+    check_eq(x_user, x_kern | kUs,
+          "x86_64 user and kernel executable pages differ only in U/S");
+    check((x86_64::encode_leaf(kX86Page, kReadWrite, kNormal, false) & kNx) != 0,
+          "x86_64 sets NX for a non-executable mapping");
+
+    // Device memory differs from normal memory on this machine too, and in a
+    // third field again: a PAT index rather than a type or an AttrIndx.
+    check(x86_64::encode_leaf(kX86Page, kReadWrite, kDevice, false)
+              != x86_64::encode_leaf(kX86Page, kReadWrite, kNormal, false),
+          "x86_64 distinguishes device from normal");
+    check_eq(x86_64::entry_phys(x86_64::encode_leaf(kX86Page + 0xFFF,
+                                                    kReadWrite, kNormal, false)),
+             kX86Page, "x86_64 discards sub-page bits of phys");
 }
 
 }  // namespace

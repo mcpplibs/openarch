@@ -1,37 +1,42 @@
 // openarch.trap — the aarch64 backend.
 
+// ⚠️ `openarch/abi.h` AT THE TOP, NOT BELOW THE HELPERS. The register readers
+// under it are written in `arch_u64`, and until 0.4.0 they were written in a
+// builtin type that needed no header — so the include sat wherever it was first
+// needed, which was after them.
+#include <openarch/abi.h>
+
 namespace {
 
 // ESR_EL1's exception class occupies bits [31:26].
-constexpr unsigned long long kEcShift = 26;
-constexpr unsigned long long kEcMask  = 0x3FULL;
+constexpr arch_u64 kEcShift = 26;
+constexpr arch_u64 kEcMask  = 0x3FULL;
 
-constexpr unsigned long long kEcUnknown       = 0x00;
-constexpr unsigned long long kEcIllegalState  = 0x0E;
-constexpr unsigned long long kEcPcAlignment   = 0x22;
-constexpr unsigned long long kEcSpAlignment   = 0x26;
-constexpr unsigned long long kEcInstrAbortLo  = 0x20;
-constexpr unsigned long long kEcInstrAbortEq  = 0x21;
-constexpr unsigned long long kEcDataAbortLo   = 0x24;
-constexpr unsigned long long kEcDataAbortEq   = 0x25;
-constexpr unsigned long long kEcBrk           = 0x3C;
+constexpr arch_u64 kEcUnknown       = 0x00;
+constexpr arch_u64 kEcIllegalState  = 0x0E;
+constexpr arch_u64 kEcPcAlignment   = 0x22;
+constexpr arch_u64 kEcSpAlignment   = 0x26;
+constexpr arch_u64 kEcInstrAbortLo  = 0x20;
+constexpr arch_u64 kEcInstrAbortEq  = 0x21;
+constexpr arch_u64 kEcDataAbortLo   = 0x24;
+constexpr arch_u64 kEcDataAbortEq   = 0x25;
+constexpr arch_u64 kEcBrk           = 0x3C;
 
-inline unsigned long long read_esr() noexcept {
-    unsigned long long v; asm volatile("mrs %0, esr_el1" : "=r"(v)); return v;
+inline arch_u64 read_esr() noexcept {
+    arch_u64 v; asm volatile("mrs %0, esr_el1" : "=r"(v)); return v;
 }
-inline unsigned long long read_elr() noexcept {
-    unsigned long long v; asm volatile("mrs %0, elr_el1" : "=r"(v)); return v;
+inline arch_u64 read_elr() noexcept {
+    arch_u64 v; asm volatile("mrs %0, elr_el1" : "=r"(v)); return v;
 }
-inline void write_elr(unsigned long long v) noexcept {
+inline void write_elr(arch_u64 v) noexcept {
     asm volatile("msr elr_el1, %0" :: "r"(v));
 }
-inline unsigned long long read_far() noexcept {
-    unsigned long long v; asm volatile("mrs %0, far_el1" : "=r"(v)); return v;
+inline arch_u64 read_far() noexcept {
+    arch_u64 v; asm volatile("mrs %0, far_el1" : "=r"(v)); return v;
 }
 
 }  // namespace
 
-#include <openarch/abi.h>
 
 extern "C" {
 extern unsigned char arch_vector_table[];   // the 2 KiB table in trap.S
@@ -49,7 +54,7 @@ arch_trap_handler_fn g_handler = nullptr;
 // synchronous exception actually was. A backend that read only `ESR_EL1` would
 // classify every interrupt as whatever `ESR_EL1` happened to hold from the last
 // synchronous trap, which is the kind of defect that works until it does not.
-int classify(unsigned long long slot, unsigned long long esr) noexcept {
+int classify(arch_u64 slot, arch_u64 esr) noexcept {
         switch (slot & 3ULL) {
         case 1: case 2: return 4;   // IRQ, FIQ
         case 3:         return 5;       // SError: asynchronous, and not
@@ -73,7 +78,7 @@ int classify(unsigned long long slot, unsigned long long esr) noexcept {
 // Called by the common path in trap.S. `slot` is the vector index the hardware
 // selected, which no register records.
 extern "C" void arch_trap_dispatch(arch_trap_frame* f,
-                                   unsigned long long slot) {
+                                   arch_u64 slot) {
     static_assert(sizeof(arch_trap_frame) == 32,
                   "trap.S reserves 32 bytes above the saved registers");
 
@@ -101,7 +106,7 @@ extern "C" void arch_trap_dispatch(arch_trap_frame* f,
 extern "C" arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h) {
     const auto prev = g_handler;
     g_handler = h;
-    const auto base = reinterpret_cast<unsigned long long>(arch_vector_table);
+    const auto base = reinterpret_cast<arch_u64>(arch_vector_table);
     // ⚠️ `isb` after the write. The barrier is what makes the new table apply
     // to exceptions that follow; without it an exception taken immediately
     // afterwards may still use the previous base, which at boot is architecturally
@@ -120,7 +125,7 @@ extern "C" void arch_trap_enable_interrupts(int on) {
 }
 
 extern "C" int arch_trap_interrupts_enabled(void) {
-    unsigned long long v;
+    arch_u64 v;
     asm volatile("mrs %0, daif" : "=r"(v));
     return (v & (1ULL << 7)) == 0 ? 1 : 0;   // I bit clear means enabled
 }

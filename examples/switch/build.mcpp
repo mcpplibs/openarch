@@ -16,6 +16,7 @@ int main() {
     // is this directory.
     if (arch == "riscv64")      mcpp::link_script("riscv64.ld");
     else if (arch == "aarch64") mcpp::link_script("aarch64.ld");
+    else if (arch == "x86_64")  mcpp::link_script("x86_64.ld");
     else {
         std::cerr << "openarch probe: no memory map for arch '" << arch
                   << "'. The probe runs on the two machines openarch has "
@@ -32,6 +33,20 @@ int main() {
     // The two packages are different — xPack builds QEMU per target family, so
     // `qemu-riscv` carries only the two RISC-V emulators and `qemu-arm` only
     // the two Arm ones. There is no single package that runs both machines.
+    // ⚠️ x86_64 IS ABSENT FROM THIS TABLE, AND THE ABSENCE IS THE ECOSYSTEM'S
+    // RATHER THAN THIS PROBE'S. xPack publishes QEMU per target family, and the
+    // index carries `qemu-riscv` and `qemu-arm` because those are the families
+    // it publishes. There is no `xim:qemu-x86`, so on that target this build
+    // program configures no runner and `mcpp build` is the whole of what CI can
+    // do — which is stated here rather than worked around, because a runner
+    // silently pointing at a host `qemu-system-x86_64` would make the build
+    // depend on what happens to be installed.
+    if (arch == "x86_64") {
+        mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
+        mcpp::rerun_if_changed("x86_64.ld");
+        return 0;
+    }
+
     const char* pkg = (arch == "riscv64") ? "qemu-riscv" : "qemu-arm";
     const char* sys = (arch == "riscv64") ? "riscv64"    : "aarch64";
     if (const char* dir = mcpp::xpkg_dir("xim", pkg); dir && *dir) {

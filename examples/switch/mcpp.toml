@@ -18,14 +18,29 @@ sysroot = ""
 [target.aarch64-none-elf]
 sysroot = ""
 
+[target.x86_64-none-elf]
+sysroot = ""
+
 [target.'cfg(arch = "riscv64")'.build]
 sources = ["src/machine_riscv64.cpp"]
 
 [target.'cfg(arch = "aarch64")'.build]
 sources = ["src/machine_aarch64.cpp"]
 
+# ⚠️ TWO FILES AND NOT ONE. Every other machine's half is a single `.cpp` whose
+# `asm` block carries a four-instruction entry stub. Reaching the state openarch
+# assumes on x86_64 — long mode, a 64-bit code segment, page tables — takes its
+# own linker section, so it is a file rather than a block.
+[target.'cfg(arch = "x86_64")'.build]
+sources = ["src/machine_x86_64.cpp", "src/boot_x86_64.S"]
+
 [dependencies]
-openarch = { path = "../../spec" }
+# ⭐ ONE LINE, AND IT NAMES NEITHER AN ARCHITECTURE NOR A BACKEND. The `backend`
+# feature is on by default and its target-conditional `feature-deps` row selects
+# the implementation for whatever `--target` this build was given. That is the
+# property the probe exists to demonstrate, so it is stated here rather than
+# worked around.
+openarch = { path = "../.." }
 
 # ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
 #

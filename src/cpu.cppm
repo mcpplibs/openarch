@@ -23,7 +23,7 @@
 
 module;
 #include <openarch/abi.h>
-export module openarch.cpu;
+export module mcpplibs.openarch.cpu;
 
 export namespace arch {
 
@@ -43,23 +43,23 @@ inline void  set_percpu(void* p) noexcept { ::arch_cpu_set_percpu(p); }
 enum class barrier {
     // Everything before is ordered before everything after, as observed by
     // other agents. riscv `fence rw, rw`; aarch64 `dmb sy`.
-    memory,
+    memory = ARCH_BARRIER_MEMORY,
 
     // Stores before are ordered before stores after. Cheaper than `memory`
     // where a machine distinguishes the two, and identical where it does not.
     // riscv `fence w, w`; aarch64 `dmb st`.
-    store,
+    store = ARCH_BARRIER_STORE,
 
     // Everything before has COMPLETED, not merely been ordered. This is the
     // one a caller wants before touching a device register or changing a
     // translation. riscv `fence rw, rw` is already completion-flavoured for
     // device accesses; aarch64 needs `dsb sy`, which `dmb` does not provide.
-    complete,
+    complete = ARCH_BARRIER_COMPLETE,
 
     // Instruction fetch sees the writes that came before. Required after
     // writing code, and after changing anything the fetch path caches. riscv
     // `fence.i`; aarch64 `isb`.
-    fetch,
+    fetch = ARCH_BARRIER_FETCH,
 };
 
 inline void fence(barrier b) noexcept { ::arch_cpu_fence(static_cast<int>(b)); }

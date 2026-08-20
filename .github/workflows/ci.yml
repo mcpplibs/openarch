@@ -58,6 +58,25 @@ jobs:
           mcpp --version
           mcpp self config --mirror GLOBAL
 
+      # ⚠️ TWICE, AND THE FIRST IS ALLOWED TO FAIL. THIS IS NOT SUPERSTITION.
+      #
+      # mcpp installs the target's C library LAZILY — during a build, from the
+      # target's own row. So the very first build on a machine that has never
+      # targeted this triple compiles sources that need its headers before they
+      # exist, and dies on `'stdio.h' file not found` or `'inttypes.h' file not
+      # found` pointing inside a dependency. The second build has them. mcpp
+      # says as much itself for the sibling case: "expected on the first build
+      # in a fresh MCPP_HOME; a second build resolves it."
+      #
+      # ⚠️ Deliberately NOT `xlings install xim:picolibc-riscv`. That would make
+      # the target world exist without going through the engine's own install,
+      # and a regression in that install is exactly what this repository would
+      # then stop noticing. A warm-up build exercises it; a manual install
+      # replaces it.
+      - name: Warm the target world (mcpp installs the C library lazily)
+        run: |
+          mcpp build --target riscv64-none-elf || true
+
       - name: Install the emulator
         run: |
           xlings install xim:qemu-riscv -y
@@ -170,4 +189,11 @@ jobs:
 
       - name: The arch mechanisms cross-build
         run: |
+          # ⚠️ TWICE, AND THE FIRST IS ALLOWED TO FAIL — every row of this
+          # matrix is a machine that has never targeted this triple, which is
+          # precisely where mcpp's lazy install of the target C library shows.
+          # The first build compiles sources needing its headers before they
+          # exist; the second has them. A single build here reported a
+          # portability failure that was really a cold-machine one.
+          mcpp build --target riscv64-none-elf || true
           mcpp build --target riscv64-none-elf

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: the context-switch probe runs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      MCPP_VERSION: 2026.8.20.2
+      XLINGS_VERSION: v2026.8.17.2
+      XLINGS_NON_INTERACTIVE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xlings
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+            | bash -s "$XLINGS_VERSION"
+          echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+
+      - name: Install mcpp
+        run: |
+          xlings update
+          xlings install "mcpp@$MCPP_VERSION" -y -g
+          mcpp --version
+          mcpp self config --mirror GLOBAL
+
+      - name: Install the emulator
+        run: |
+          xlings install xim:qemu-riscv -y
+          XLINGS_HOME="$HOME/.mcpp/registry" xlings install xim:qemu-riscv -y
+
+      - name: The layer builds for riscv64
+        run: mcpp build --target riscv64-none-elf
+
+      # ⚠️ The probe asserts the CALLEE-SAVED half of the contract, which a
+      # "does it run" check would miss: a backend that switched stacks but
+      # dropped s-registers would still print both lines.
+      - name: The probe switches, returns, and preserves callee-saved registers
+        run: |
+          set -euo pipefail
+          cd examples/switch
+          mcpp run 2>&1 | tee run.log
+          grep -q "task: arg=42" run.log
+          grep -q "witness=7 before=1234" run.log

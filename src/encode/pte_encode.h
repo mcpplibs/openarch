@@ -34,6 +34,20 @@
  * unit its own entity, and an inline function referring to one is an ODR
  * violation that no compiler is required to report.
  *
+ * ⚠️ `unsigned long long`, NOT `unsigned long`, AND CROSS-PLATFORM CI IS WHAT
+ * FOUND IT.
+ *
+ * A page-table entry is 64 bits on both machines, and `unsigned long` is 64 bits
+ * on the systems this was written on. It is 32 on Windows, where `1UL << 53` is
+ * a shift wider than the type — undefined, and in practice silently zero rather
+ * than an error, so an encoder built there would have produced entries with
+ * every high field missing and no diagnostic at all. The host job caught it only
+ * because `constexpr` forces the shift to be evaluated at compile time, which
+ * turns the silent case into `must be initialized by a constant expression`.
+ *
+ * `unsigned long long` is at least 64 bits everywhere, which is the property the
+ * entries need.
+ *
  * The integer parameters mirror the module's enumerators in declaration order:
  *
  *   perm: 0 read, 1 read_write, 2 read_exec, 3 read_write_exec
@@ -53,13 +67,13 @@ namespace arch {
 // walked differs, and that is the walker's business rather than the entry's.
 namespace riscv64 {
 
-inline constexpr unsigned long kV = 1UL << 0;   // valid
-inline constexpr unsigned long kR = 1UL << 1;   // readable
-inline constexpr unsigned long kW = 1UL << 2;   // writable
-inline constexpr unsigned long kX = 1UL << 3;   // executable
-inline constexpr unsigned long kU = 1UL << 4;   // reachable from user mode
-inline constexpr unsigned long kA = 1UL << 6;   // accessed
-inline constexpr unsigned long kD = 1UL << 7;   // dirty
+inline constexpr unsigned long long kV = 1ULL << 0;   // valid
+inline constexpr unsigned long long kR = 1ULL << 1;   // readable
+inline constexpr unsigned long long kW = 1ULL << 2;   // writable
+inline constexpr unsigned long long kX = 1ULL << 3;   // executable
+inline constexpr unsigned long long kU = 1ULL << 4;   // reachable from user mode
+inline constexpr unsigned long long kA = 1ULL << 6;   // accessed
+inline constexpr unsigned long long kD = 1ULL << 7;   // dirty
 
 // ⚠️ Svpbmt, bits [62:61]: 0 = PMA (whatever the platform says the region is),
 // 1 = NC (non-cacheable, idempotent), 2 = IO (non-cacheable, non-idempotent).
@@ -69,15 +83,15 @@ inline constexpr unsigned long kD = 1UL << 7;   // dirty
 // ⭐ THE ENTIRE MEMORY TYPE IS HERE, IN THE ENTRY. That is what the aarch64
 // encoder below cannot reproduce, and the reason `install_memory_attributes`
 // exists in the interface at all.
-inline constexpr unsigned long kPbmtIo = 2UL << 61;
+inline constexpr unsigned long long kPbmtIo = 2ULL << 61;
 
 // The physical page number occupies [53:10].
-inline constexpr unsigned long kPpnShift = 10;
-inline constexpr unsigned long kPpnMask  = ((1UL << 44) - 1) << kPpnShift;
+inline constexpr unsigned long long kPpnShift = 10;
+inline constexpr unsigned long long kPpnMask  = ((1ULL << 44) - 1) << kPpnShift;
 
-inline unsigned long encode_leaf(unsigned long phys, int perm, int mt,
+inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
                                  bool user) noexcept {
-    unsigned long e = kV | kA | kR;
+    unsigned long long e = kV | kA | kR;
 
     // ⚠️ `D` is set whenever the mapping is writable. A hart is permitted to
     // fault on the first write to a clean page, and nothing in this layer would
@@ -95,9 +109,9 @@ inline unsigned long encode_leaf(unsigned long phys, int perm, int mt,
     return e | (((phys >> 12) << kPpnShift) & kPpnMask);
 }
 
-inline bool entry_valid(unsigned long bits) noexcept { return (bits & kV) != 0; }
+inline bool entry_valid(unsigned long long bits) noexcept { return (bits & kV) != 0; }
 
-inline unsigned long entry_phys(unsigned long bits) noexcept {
+inline unsigned long long entry_phys(unsigned long long bits) noexcept {
     if (!entry_valid(bits)) return 0;
     return ((bits & kPpnMask) >> kPpnShift) << 12;
 }
@@ -118,7 +132,7 @@ inline unsigned long entry_phys(unsigned long bits) noexcept {
 namespace aarch64 {
 
 // The descriptor's low two bits: 0b11 is a valid page at the last level.
-inline constexpr unsigned long kValidPage = 3UL;
+inline constexpr unsigned long long kValidPage = 3ULL;
 
 // AttrIndx, bits [4:2], indexing the layout install_memory_attributes writes:
 //
@@ -129,31 +143,31 @@ inline constexpr unsigned long kValidPage = 3UL;
 // memory. An unused MAIR field is zero, which reads as Device-nGnRnE — the
 // strictest type — so a mis-encoded index degrades to "slow and correct" rather
 // than to "cached device register".
-inline constexpr unsigned long kAttrNormal = 0UL << 2;
-inline constexpr unsigned long kAttrDevice = 1UL << 2;
+inline constexpr unsigned long long kAttrNormal = 0ULL << 2;
+inline constexpr unsigned long long kAttrDevice = 1ULL << 2;
 
 // AP, bits [7:6]. ⚠️ aarch64 states permission as a PAIR of levels rather than
 // as one set of bits per level, which is the second place the two machines
 // disagree: riscv has a single `U` bit orthogonal to R/W/X.
-inline constexpr unsigned long kApRwEl1    = 0UL << 6;   // read-write, privileged
-inline constexpr unsigned long kApRwEl0El1 = 1UL << 6;   // read-write, both
-inline constexpr unsigned long kApRoEl1    = 2UL << 6;   // read-only, privileged
-inline constexpr unsigned long kApRoEl0El1 = 3UL << 6;   // read-only, both
+inline constexpr unsigned long long kApRwEl1    = 0ULL << 6;   // read-write, privileged
+inline constexpr unsigned long long kApRwEl0El1 = 1ULL << 6;   // read-write, both
+inline constexpr unsigned long long kApRoEl1    = 2ULL << 6;   // read-only, privileged
+inline constexpr unsigned long long kApRoEl0El1 = 3ULL << 6;   // read-only, both
 
 // SH, bits [9:8]. Inner shareable for normal memory; device memory ignores the
 // field, and zero is what the manual's examples leave there.
-inline constexpr unsigned long kShInner = 3UL << 8;
+inline constexpr unsigned long long kShInner = 3ULL << 8;
 
-inline constexpr unsigned long kAf  = 1UL << 10;   // access flag
-inline constexpr unsigned long kPxn = 1UL << 53;   // privileged execute never
-inline constexpr unsigned long kUxn = 1UL << 54;   // unprivileged execute never
+inline constexpr unsigned long long kAf  = 1ULL << 10;   // access flag
+inline constexpr unsigned long long kPxn = 1ULL << 53;   // privileged execute never
+inline constexpr unsigned long long kUxn = 1ULL << 54;   // unprivileged execute never
 
 // The output address occupies [47:12].
-inline constexpr unsigned long kOaMask = ((1UL << 36) - 1) << 12;
+inline constexpr unsigned long long kOaMask = ((1ULL << 36) - 1) << 12;
 
-inline unsigned long encode_leaf(unsigned long phys, int perm, int mt,
+inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
                                  bool user) noexcept {
-    unsigned long e = kValidPage | kAf;
+    unsigned long long e = kValidPage | kAf;
 
     const bool writable   = (perm == 1 || perm == 3);
     const bool executable = (perm == 2 || perm == 3);
@@ -186,9 +200,9 @@ inline unsigned long encode_leaf(unsigned long phys, int perm, int mt,
     return e | (phys & kOaMask);
 }
 
-inline bool entry_valid(unsigned long bits) noexcept { return (bits & 1UL) != 0; }
+inline bool entry_valid(unsigned long long bits) noexcept { return (bits & 1ULL) != 0; }
 
-inline unsigned long entry_phys(unsigned long bits) noexcept {
+inline unsigned long long entry_phys(unsigned long long bits) noexcept {
     if (!entry_valid(bits)) return 0;
     return bits & kOaMask;
 }

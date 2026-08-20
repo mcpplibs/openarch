@@ -66,7 +66,7 @@ enum class memory_type {
 // architecture's, and a consumer that read its fields would be writing code
 // that only builds on one machine.
 struct pte {
-    unsigned long bits;
+    unsigned long long bits;
 };
 
 // Builds a leaf entry mapping the physical address `phys`.
@@ -78,13 +78,13 @@ struct pte {
 // ⚠️ The entry is VALID and ACCESSED. Neither machine faults on a first touch
 // in the arrangement this layer serves, and leaving the accessed bit clear
 // costs a fault on every machine to record something nothing here reads.
-pte make_leaf(unsigned long phys, perm p, memory_type mt, bool user) noexcept;
+pte make_leaf(unsigned long long phys, perm p, memory_type mt, bool user) noexcept;
 
 // Whether an entry maps anything.
 bool is_valid(pte e) noexcept;
 
 // The physical address an entry maps, or zero if it maps nothing.
-unsigned long phys_of(pte e) noexcept;
+unsigned long long phys_of(pte e) noexcept;
 
 // Programs whatever the machine needs before `memory_type` is meaningful.
 //

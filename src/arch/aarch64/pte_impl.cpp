@@ -5,13 +5,13 @@ module openarch.pte;
 
 namespace arch {
 
-pte make_leaf(unsigned long phys, perm p, memory_type mt, bool user) noexcept {
+pte make_leaf(unsigned long long phys, perm p, memory_type mt, bool user) noexcept {
     return pte{ aarch64::encode_leaf(phys, static_cast<int>(p),
                                      static_cast<int>(mt), user) };
 }
 
 bool          is_valid(pte e) noexcept { return aarch64::entry_valid(e.bits); }
-unsigned long phys_of (pte e) noexcept { return aarch64::entry_phys(e.bits);  }
+unsigned long long phys_of (pte e) noexcept { return aarch64::entry_phys(e.bits);  }
 
 // The canonical MAIR_EL1 layout the encoder's AttrIndx values index into.
 //
@@ -31,7 +31,7 @@ unsigned long phys_of (pte e) noexcept { return aarch64::entry_phys(e.bits);  }
 // mappings installed after boot may be walked against the reset value of the
 // register, which is architecturally UNKNOWN.
 void install_memory_attributes() noexcept {
-    constexpr unsigned long kMair = 0x00FFUL;
+    constexpr unsigned long long kMair = 0x00FFUL;
     asm volatile("msr mair_el1, %0\n\tisb" :: "r"(kMair) : "memory");
 }
 

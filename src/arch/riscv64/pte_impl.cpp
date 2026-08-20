@@ -8,13 +8,13 @@ module openarch.pte;
 
 namespace arch {
 
-pte make_leaf(unsigned long phys, perm p, memory_type mt, bool user) noexcept {
+pte make_leaf(unsigned long long phys, perm p, memory_type mt, bool user) noexcept {
     return pte{ riscv64::encode_leaf(phys, static_cast<int>(p),
                                      static_cast<int>(mt), user) };
 }
 
 bool          is_valid(pte e) noexcept { return riscv64::entry_valid(e.bits); }
-unsigned long phys_of (pte e) noexcept { return riscv64::entry_phys(e.bits);  }
+unsigned long long phys_of (pte e) noexcept { return riscv64::entry_phys(e.bits);  }
 
 // ⚠️ EMPTY, AND CORRECTLY SO RATHER THAN AS A STUB.
 //

@@ -28,7 +28,7 @@ void check(bool ok, const char* what) {
     if (!ok) { std::printf("FAILED: %s\n", what); ++g_failed; }
 }
 
-void check_eq(unsigned long got, unsigned long want, const char* what) {
+void check_eq(unsigned long long got, unsigned long long want, const char* what) {
     if (got != want) {
         std::printf("FAILED: %s\n  want 0x%016lx\n  got  0x%016lx\n",
                     what, want, got);
@@ -40,8 +40,8 @@ void check_eq(unsigned long got, unsigned long want, const char* what) {
 constexpr int kRead = 0, kReadWrite = 1, kReadExec = 2, kReadWriteExec = 3;
 constexpr int kNormal = 0, kDevice = 1;
 
-constexpr unsigned long kRvPage = 0x80200000UL;   // where riscv `virt` has RAM
-constexpr unsigned long kA64Page = 0x40200000UL;  // where aarch64 `virt` does
+constexpr unsigned long long kRvPage = 0x80200000UL;   // where riscv `virt` has RAM
+constexpr unsigned long long kA64Page = 0x40200000UL;  // where aarch64 `virt` does
 
 // ── The exact encodings, derived from the manuals ───────────────────────────
 //
@@ -114,8 +114,8 @@ void agreement() {
     // written, and an encoder ported by analogy would omit it and produce a
     // machine on which user memory is kernel-executable. Nothing on riscv can
     // fail this check; it is here for the machine that can.
-    constexpr unsigned long kPxn = 1UL << 53;
-    constexpr unsigned long kUxn = 1UL << 54;
+    constexpr unsigned long long kPxn = 1ULL << 53;
+    constexpr unsigned long long kUxn = 1ULL << 54;
     for (int p = kRead; p <= kReadWriteExec; ++p) {
         const auto user = aarch64::encode_leaf(kA64Page, p, kNormal, true);
         check((user & kPxn) != 0,
@@ -126,7 +126,7 @@ void agreement() {
     }
 
     // Execution is denied unless it was asked for, on both machines.
-    constexpr unsigned long kRvX = 1UL << 3;
+    constexpr unsigned long long kRvX = 1ULL << 3;
     check((riscv64::encode_leaf(kRvPage, kReadWrite, kNormal, false) & kRvX) == 0,
           "riscv64 leaves X clear for a non-executable mapping");
     check((aarch64::encode_leaf(kA64Page, kReadWrite, kNormal, false) & kPxn) != 0,

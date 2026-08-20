@@ -169,6 +169,77 @@ jobs:
           grep -q "trap: back, witness=1" run.log
           grep -q "cpu: percpu round-trips" run.log
 
+      # ⚠️ THE TEMPLATE IS RENDERED BY HAND HERE, AND IT HAS TO BE.
+      #
+      # `mcpp new --template` resolves the package from the INDEX and takes no
+      # path, so asking it for a template this commit ADDS would resolve the
+      # previously published version and fail on a template that version does
+      # not carry. The CI for a new template could never pass before the
+      # template was published, which is the wrong way round.
+      #
+      # What belongs to this repository is the template's CONTENT: that the
+      # files it ships generate a project which builds for all three machines.
+      # That the scaffolder can fetch it is mcpp's own concern and mcpp's own
+      # tests.
+      #
+      # ⚠️ The dependency is rewritten to a path. The rendered manifest names
+      # `openarch = "<this version>"`, which is correct for a user and
+      # unresolvable here — this version is not published yet, and a check that
+      # silently fell back to the previous one would be testing the wrong tree.
+      #
+      # ⚠️ IN THE `gate` JOB'S riscv64 ROW, AND THE PLACEMENT IS THE FIX FOR A
+      # MISTAKE. 0.4.0 put this in `host-encoders`, which installs no emulator —
+      # so the check could only ever assert `mcpp build`, and a generated project
+      # that ran on nothing passed it. The emulator lives here.
+      #
+      # One row rather than all three: the template's CONTENT is
+      # host-independent, and the rewrite below puts `$PWD` into a manifest,
+      # which on a Windows runner is `/d/a/openarch/openarch` under Git Bash
+      # while mcpp wants a native path — a mismatch this repository has been
+      # bitten by before.
+      - name: The template generates a project that builds for all three machines and runs
+        if: matrix.arch == 'riscv64'
+        run: |
+          set -euo pipefail
+          T=templates/three-machines
+          V=$(grep -m1 '^version' mcpp.toml | cut -d'"' -f2)
+          D=$(mktemp -d); mkdir -p "$D/src"
+          for f in mcpp.toml README.md build.mcpp; do
+            sed -e "s/{{project\.name}}/k/g" -e "s/{{self\.version}}/$V/g" \
+                "$T/$f.in" > "$D/$f"
+          done
+          cp "$T"/*.ld "$D/"
+          cp "$T"/src/* "$D/src/"
+          sed -i.bak "s|openarch = \"$V\"|openarch = { path = \"$PWD\" }|" "$D/mcpp.toml"
+          rm -f "$D/mcpp.toml.bak"
+          grep -q "path = " "$D/mcpp.toml" || { cat "$D/mcpp.toml"; echo "the dependency rewrite did not apply"; exit 1; }
+          for t in riscv64-none-elf aarch64-none-elf x86_64-none-elf; do
+            ( cd "$D" && mcpp build --target "$t" > /dev/null 2>&1 ) || true
+            ( cd "$D" && mcpp build --target "$t" ) \
+              || { echo "the template does not build for $t"; exit 1; }
+          done
+          echo "the template builds for riscv64, aarch64 and x86_64"
+
+          # ⚠️ AND IT MUST RUN, NOT ONLY BUILD — THIS ASSERTION IS HERE BECAUSE
+          # ITS ABSENCE SHIPPED A BROKEN QUICK START.
+          #
+          # 0.4.0's check stopped at `mcpp build`, so a generated project that
+          # compiled for all three machines and ran on none of them passed. What
+          # was missing is not in the sources: `mcpp.toml` declares the emulator
+          # packages under `[xlings] deps`, which is not an install trigger, so
+          # on a machine that has not installed them `build.mcpp` finds nothing
+          # and configures no runner. Measured against a freshly unpacked mcpp.
+          #
+          # This job installs the emulator in an earlier step, so the run below
+          # exercises the path a user gets AFTER the README's one-time install.
+          # What it cannot cover is the before — see the note in the README, and
+          # the comment in build.mcpp on why a build program cannot warn.
+          ( cd "$D" && mcpp run --target riscv64-none-elf 2>&1 | tee run.log ) \
+            || { cat "$D/run.log"; echo "the generated project does not run"; exit 1; }
+          grep -q "switch ok" "$D/run.log" \
+            || { cat "$D/run.log"; echo "the generated project ran without reaching the end"; exit 1; }
+          echo "the template's project runs, not only builds"
+
       # The same source produced that output. Asserted rather than trusted: a
       # probe that had quietly grown a per-architecture branch would still pass
       # every line above, and the gate would be measuring two programs.
@@ -309,55 +380,6 @@ jobs:
       # header now: a target build instantiates only what it calls — measured,
       # zero foreign symbols in either image — and a host build that calls both
       # gets both, with nothing to activate.
-      # ⚠️ THE TEMPLATE IS RENDERED BY HAND HERE, AND IT HAS TO BE.
-      #
-      # `mcpp new --template` resolves the package from the INDEX and takes no
-      # path, so asking it for a template this commit ADDS would resolve the
-      # previously published version and fail on a template that version does
-      # not carry. The CI for a new template could never pass before the
-      # template was published, which is the wrong way round.
-      #
-      # What belongs to this repository is the template's CONTENT: that the
-      # files it ships generate a project which builds for all three machines.
-      # That the scaffolder can fetch it is mcpp's own concern and mcpp's own
-      # tests.
-      #
-      # ⚠️ The dependency is rewritten to a path. The rendered manifest names
-      # `openarch = "<this version>"`, which is correct for a user and
-      # unresolvable here — this version is not published yet, and a check that
-      # silently fell back to the previous one would be testing the wrong tree.
-      #
-      # ⚠️ LINUX ONLY, AND THAT IS A CHOICE ABOUT PATHS RATHER THAN ABOUT
-      # COVERAGE. The rewrite below puts `$PWD` into a manifest, and on a
-      # Windows runner `$PWD` under Git Bash is `/d/a/openarch/openarch` while
-      # mcpp wants a native path — a mismatch this repository has already been
-      # bitten by once, in a C++ string literal that came out as
-      # `"D:\a\openkal\openkal/include"`. The template's CONTENT is
-      # host-independent; what varies per host is the toolchain payload, and
-      # that is what the `portability` job covers.
-      - name: The template generates a project that builds for all three machines
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          T=templates/three-machines
-          V=$(grep -m1 '^version' mcpp.toml | cut -d'"' -f2)
-          D=$(mktemp -d); mkdir -p "$D/src"
-          for f in mcpp.toml README.md build.mcpp; do
-            sed -e "s/{{project\.name}}/k/g" -e "s/{{self\.version}}/$V/g" \
-                "$T/$f.in" > "$D/$f"
-          done
-          cp "$T"/*.ld "$D/"
-          cp "$T"/src/* "$D/src/"
-          sed -i.bak "s|openarch = \"$V\"|openarch = { path = \"$PWD\" }|" "$D/mcpp.toml"
-          rm -f "$D/mcpp.toml.bak"
-          grep -q "path = " "$D/mcpp.toml" || { cat "$D/mcpp.toml"; echo "the dependency rewrite did not apply"; exit 1; }
-          for t in riscv64-none-elf aarch64-none-elf x86_64-none-elf; do
-            ( cd "$D" && mcpp build --target "$t" > /dev/null 2>&1 ) || true
-            ( cd "$D" && mcpp build --target "$t" ) \
-              || { echo "the template does not build for $t"; exit 1; }
-          done
-          echo "the template builds for riscv64, aarch64 and x86_64"
-
       # ⚠️ THREE ENCODERS SINCE 0.4.0, AND THE THIRD SETTLED A QUESTION THE
       # FIRST TWO LEFT OPEN. `openarch.pte` owns `MAIR_EL1` because aarch64's
       # entry holds an INDEX into it rather than a memory type, while riscv's

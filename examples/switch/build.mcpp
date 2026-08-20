@@ -49,6 +49,34 @@ int main() {
 
     const char* pkg = (arch == "riscv64") ? "qemu-riscv" : "qemu-arm";
     const char* sys = (arch == "riscv64") ? "riscv64"    : "aarch64";
+    // ⚠️ DECLARED IS NOT INSTALLED, AND THE DIFFERENCE IS INVISIBLE UNTIL
+    // SOMEBODY BUILDS THIS ON A MACHINE THAT HAS NOT ALREADY GOT THE EMULATOR.
+    //
+    // The manifest's `[xlings] deps` names the emulator packages, and
+    // `mcpp::xpkg_dir` answers "where did that package land" — it installs
+    // nothing, and a manifest's `[xlings] deps` is not an install trigger. On a
+    // clean registry it returns empty, the branch below configures no runner,
+    // and `mcpp run` reports
+    //
+    //     error: no runner is configured for 'riscv64-none-elf'
+    //
+    // with advice about writing a `runner` key — true in general, and not the
+    // cause here. Measured against a freshly unpacked mcpp: the project builds
+    // for all three machines and runs on none of them.
+    //
+    // An ordinary bare-metal project never meets this, because a BOARD package
+    // declares its emulator in the index descriptor's platform `deps`, and
+    // those ARE installed with the package. This project has no board package —
+    // none serves three machines — so it declares them itself.
+    //
+    // ⚠️ AND IT CANNOT WARN. A build program's output reaches the user only
+    // when it FAILS: mcpp captures the process and prints what it captured
+    // solely on a non-zero exit. A `std::cerr` note here was written, measured,
+    // and removed — it printed nothing on the very builds that needed it, which
+    // is worse than no note at all because it looks like a fix. Failing instead
+    // would be wrong too: `mcpp build` has no need of an emulator.
+    //
+    // So the README carries it, and this comment records why it has to.
     if (const char* dir = mcpp::xpkg_dir("xim", pkg); dir && *dir) {
         mcpp::runner(std::format("{}/bin/qemu-system-{}", dir, sys).c_str());
         mcpp::runner("-machine");

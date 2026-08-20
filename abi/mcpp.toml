@@ -24,7 +24,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-abi"
-version     = "0.4.0"
+version     = "0.4.1"
 description = "openarch's C ABI: the contract between the interface and an instruction set's backend"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

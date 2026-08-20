@@ -6,5 +6,5 @@ version = "0.1.0"
 target = "riscv64-none-elf"
 
 [dependencies]
-riscv-virt-rt = "0.4.0"
+riscv-virt-rt = "0.4.1"
 openarch      = { path = "../.." }

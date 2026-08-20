@@ -54,10 +54,24 @@ sources = ["src/*.cppm"]
 # 2000. `inline` in a header satisfies both without a knob: a target build
 # instantiates only what it calls (measured: zero foreign symbols in either
 # image), and a host build that calls both gets both.
-[target.'cfg(arch = "riscv64")'.build]
+# ⚠️ `os = "none"` IS PART OF THE PREDICATE, AND LEAVING IT OUT WAS A DEFECT
+# THAT ONLY A macOS RUNNER COULD SHOW.
+#
+# The predicate was `cfg(arch = "...")` alone. On a HOST build the target is the
+# host, so on an arm64 macOS machine `arch = "aarch64"` matched and the backend's
+# assembly was compiled for Mach-O:
+#
+#     context.S:21:14: error: mach-o section specifier uses an unknown section type
+#
+# The assembly is ELF-shaped because every target this layer serves is. But the
+# deeper point is that the row should never have matched: openarch is what a
+# KERNEL asks of a machine, and a hosted aarch64 build has an operating system
+# already. `os = "none"` says that, and it is the same distinction the target
+# table draws.
+[target.'cfg(all(arch = "riscv64", os = "none"))'.build]
 sources = ["src/arch/riscv64/**"]
 
-[target.'cfg(arch = "aarch64")'.build]
+[target.'cfg(all(arch = "aarch64", os = "none"))'.build]
 sources = ["src/arch/aarch64/**"]
 
 [targets.openarch]

@@ -1,0 +1,50 @@
+# {{project.name}}
+
+```
+mcpp run --target riscv64-none-elf
+mcpp run --target aarch64-none-elf
+mcpp build --target x86_64-none-elf
+```
+
+⭐ **The same `src/main.cpp` on all three.** That is the claim this template
+exists to hand over, and it is worth checking rather than believing: build it
+for two targets and compare the output.
+
+## What is shared and what is not
+
+| | |
+|---|---|
+| `src/main.cpp` | Everything the program does. Names no architecture except to emit a trap instruction, for which there is no portable spelling |
+| `src/machine.h` | Three functions — print a character, print an integer, power off |
+| `src/machine_<arch>.cpp` | The console and the power-off register, which are BOARD facts rather than architecture facts |
+| `<arch>.ld` | Where the image is loaded, which is also a board fact |
+| `src/boot_x86_64.S` | Reaching long mode. It has no counterpart on the other two, and that absence is the point — see below |
+
+## Why x86_64 has an extra file
+
+riscv64 and aarch64 begin executing 64-bit instructions at reset, so their half
+of the machine is a four-instruction `asm` block: set a stack pointer, call C.
+
+x86_64 begins in 16-bit real mode, and a multiboot loader hands over in 32-bit
+protected mode with paging off. Everything `openarch` assumes — long mode, a
+64-bit code segment, page tables — has to be built first, in about a hundred
+instructions that belong to no layer of the library. They are in the project
+rather than in the backend for the same reason no linker script is in the
+backend: how a particular image reaches that state is a property of how it is
+LOADED, and a multiboot image, a UEFI application and a bzImage arrive by three
+different routes.
+
+## Running it
+
+`riscv64` and `aarch64` run under emulators the package index carries, and
+`build.mcpp` configures them.
+
+⚠️ **x86_64 builds but does not run from `mcpp run`,** and the manifest says so
+rather than working around it. The index has no `xim:qemu-x86` — xPack publishes
+QEMU per target family and has no x86 build — and a build program that fell back
+to whatever `qemu-system-x86_64` happened to be on the machine would make the
+build depend on what is installed. Run it by hand:
+
+```
+qemu-system-x86_64 -machine q35 -nographic -no-reboot -kernel <image>
+```

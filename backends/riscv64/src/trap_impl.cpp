@@ -9,38 +9,43 @@
 // disagreement about the size would corrupt the saved `a0` immediately below
 // it, which is the register the handler's argument arrives in — a fault whose
 // symptom is arbitrarily far from its cause.
+// ⚠️ `openarch/abi.h` AT THE TOP, NOT BELOW THE HELPERS. The register readers
+// under it are written in `arch_u64`, and until 0.4.0 they were written in a
+// builtin type that needed no header — so the include sat wherever it was first
+// needed, which was after them.
+#include <openarch/abi.h>
+
 namespace {
 
-constexpr unsigned long long kCauseInterrupt = 1ULL << 63;
+constexpr arch_u64 kCauseInterrupt = 1ULL << 63;
 
 // The exception codes this backend maps. Everything else reaches `other` with
 // its numeric cause intact, which is the honest answer for a machine-specific
 // event rather than a guess at the nearest portable name.
-constexpr unsigned long long kInstrMisaligned = 0;
-constexpr unsigned long long kIllegalInstr    = 2;
-constexpr unsigned long long kBreakpoint      = 3;
-constexpr unsigned long long kLoadMisaligned  = 4;
-constexpr unsigned long long kStoreMisaligned = 6;
-constexpr unsigned long long kInstrPageFault  = 12;
-constexpr unsigned long long kLoadPageFault   = 13;
-constexpr unsigned long long kStorePageFault  = 15;
+constexpr arch_u64 kInstrMisaligned = 0;
+constexpr arch_u64 kIllegalInstr    = 2;
+constexpr arch_u64 kBreakpoint      = 3;
+constexpr arch_u64 kLoadMisaligned  = 4;
+constexpr arch_u64 kStoreMisaligned = 6;
+constexpr arch_u64 kInstrPageFault  = 12;
+constexpr arch_u64 kLoadPageFault   = 13;
+constexpr arch_u64 kStorePageFault  = 15;
 
-inline unsigned long long read_mcause() noexcept {
-    unsigned long long v; asm volatile("csrr %0, mcause" : "=r"(v)); return v;
+inline arch_u64 read_mcause() noexcept {
+    arch_u64 v; asm volatile("csrr %0, mcause" : "=r"(v)); return v;
 }
-inline unsigned long long read_mepc() noexcept {
-    unsigned long long v; asm volatile("csrr %0, mepc" : "=r"(v)); return v;
+inline arch_u64 read_mepc() noexcept {
+    arch_u64 v; asm volatile("csrr %0, mepc" : "=r"(v)); return v;
 }
-inline void write_mepc(unsigned long long v) noexcept {
+inline void write_mepc(arch_u64 v) noexcept {
     asm volatile("csrw mepc, %0" :: "r"(v));
 }
-inline unsigned long long read_mtval() noexcept {
-    unsigned long long v; asm volatile("csrr %0, mtval" : "=r"(v)); return v;
+inline arch_u64 read_mtval() noexcept {
+    arch_u64 v; asm volatile("csrr %0, mtval" : "=r"(v)); return v;
 }
 
 }  // namespace
 
-#include <openarch/abi.h>
 
 extern "C" void arch_trap_entry();   // the stub in trap.S
 
@@ -48,7 +53,7 @@ namespace {
 
 arch_trap_handler_fn g_handler = nullptr;
 
-int classify(unsigned long long cause) noexcept {
+int classify(arch_u64 cause) noexcept {
         if (cause & kCauseInterrupt) return 4;
     switch (cause) {
         case kBreakpoint:                                   return 0;
@@ -106,19 +111,19 @@ extern "C" arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h) {
     // vectored mode would scale interrupt causes into separate entries — which
     // is the aarch64 arrangement, and is exactly what this interface hides. One
     // entry point on both machines is what makes `handler` mean one thing.
-    const auto vec = reinterpret_cast<unsigned long long>(&arch_trap_entry);
+    const auto vec = reinterpret_cast<arch_u64>(&arch_trap_entry);
     asm volatile("csrw mtvec, %0" :: "r"(vec & ~3ULL) : "memory");
     return prev;
 }
 
 extern "C" void arch_trap_enable_interrupts(int on) {
-    constexpr unsigned long long kMie = 1ULL << 3;   // mstatus.MIE
+    constexpr arch_u64 kMie = 1ULL << 3;   // mstatus.MIE
     if (on) asm volatile("csrs mstatus, %0" :: "r"(kMie) : "memory");
     else    asm volatile("csrc mstatus, %0" :: "r"(kMie) : "memory");
 }
 
 extern "C" int arch_trap_interrupts_enabled(void) {
-    unsigned long long v;
+    arch_u64 v;
     asm volatile("csrr %0, mstatus" : "=r"(v));
     return (v & (1ULL << 3)) != 0 ? 1 : 0;
 }

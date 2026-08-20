@@ -37,7 +37,7 @@
 
 module;
 #include <openarch/abi.h>
-export module openarch.context;
+export module mcpplibs.openarch.context;
 
 export namespace arch {
 
@@ -81,13 +81,20 @@ struct context {
 // contract cannot name a C++ type; this module takes `context&` because a
 // caller should not be able to pass the wrong thing. The wrapper is the only
 // place that conversion happens, and it is `inline`, so it costs nothing.
+//
+// ⚠️ `arch::context_switch` AND NOT `arch::arch_context_switch`, WHICH IS WHAT
+// 0.3.1 EXPORTED. The `arch_` prefix is C's way of having a namespace; repeating
+// it inside `namespace arch` produced `arch::arch_context_switch` beside
+// `arch::set_handler`, `arch::fence` and `arch::make_leaf` — the C++ face was
+// inconsistent with itself, and only in the module that came first. Renamed at
+// 0.4.0, which is the release that reorganised the package anyway.
 
 // Saves the current context into `from` and resumes `to`.
 //
 // Returns when something switches back to `from`. The first return therefore
 // happens in a different context from the call, which is why the assembly form
 // is load-bearing rather than an optimisation.
-inline void arch_context_switch(context& from, context& to) noexcept {
+inline void context_switch(context& from, context& to) noexcept {
     ::arch_context_switch(&from, &to);
 }
 
@@ -101,8 +108,8 @@ inline void arch_context_switch(context& from, context& to) noexcept {
 // ⚠️ `entry` must not return. There is no context to return TO: the initial
 // return address is a trampoline that has no caller. A kernel gives each task
 // an entry that ends by switching away.
-inline void arch_context_init(context& ctx, void (*entry)(void*), void* arg,
-                              void* stack_top) noexcept {
+inline void context_init(context& ctx, void (*entry)(void*), void* arg,
+                         void* stack_top) noexcept {
     ::arch_context_init(&ctx, entry, arg, stack_top);
 }
 

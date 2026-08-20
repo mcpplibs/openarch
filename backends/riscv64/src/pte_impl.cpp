@@ -6,13 +6,13 @@
 #include <openarch/pte_encode.h>
 
 
-extern "C" unsigned long long arch_pte_make_leaf(unsigned long long phys,
+extern "C" arch_u64 arch_pte_make_leaf(arch_u64 phys,
                                                  int perm, int mt, int user) {
     return arch::riscv64::encode_leaf(phys, perm, mt, user != 0);
 }
 
-extern "C" int arch_pte_valid(unsigned long long bits) { return arch::riscv64::entry_valid(bits) ? 1 : 0; }
-extern "C" unsigned long long arch_pte_phys(unsigned long long bits) { return arch::riscv64::entry_phys(bits); }
+extern "C" int arch_pte_valid(arch_u64 bits) { return arch::riscv64::entry_valid(bits) ? 1 : 0; }
+extern "C" arch_u64 arch_pte_phys(arch_u64 bits) { return arch::riscv64::entry_phys(bits); }
 
 // ⚠️ EMPTY, AND CORRECTLY SO RATHER THAN AS A STUB.
 //

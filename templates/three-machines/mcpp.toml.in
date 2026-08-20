@@ -1,17 +1,21 @@
 [package]
-name    = "switch"
+name    = "{{project.name}}"
 version = "0.1.0"
 
-# ⚠️ NO `[build] target`. The probe's whole claim is that one project serves two
-# machines, so the target arrives on the command line — `mcpp run --target
-# riscv64-none-elf` and `--target aarch64-none-elf` — and nothing in this file
-# names either of them except the two source selections below.
+# ⚠️ NO `[build] target`. This project's whole claim is that ONE source serves
+# three machines, so the target arrives on the command line — `mcpp run --target
+# riscv64-none-elf`, `--target aarch64-none-elf`, `mcpp build --target
+# x86_64-none-elf` — and nothing in this file names any of them except the three
+# source selections below.
+#
+# Adding `target = "..."` here would make the claim untestable, which is a
+# larger loss than the convenience.
 [build]
 sources = ["src/main.cpp"]
 
-# The zero-libc tier on both machines. openarch references no C library symbol,
-# and the probe prints by storing to a UART rather than by calling one, so a C
-# library would be a payload nothing in this project calls.
+# The zero-libc tier on every machine. openarch references no C library symbol,
+# and this project prints by storing to a UART (or, on x86, by an `out`) rather
+# than by calling one, so a C library would be a payload nothing here calls.
 [target.riscv64-none-elf]
 sysroot = ""
 
@@ -35,12 +39,11 @@ sources = ["src/machine_aarch64.cpp"]
 sources = ["src/machine_x86_64.cpp", "src/boot_x86_64.S"]
 
 [dependencies]
-# ⭐ ONE LINE, AND IT NAMES NEITHER AN ARCHITECTURE NOR A BACKEND. The `backend`
-# feature is on by default and its target-conditional `feature-deps` row selects
-# the implementation for whatever `--target` this build was given. That is the
-# property the probe exists to demonstrate, so it is stated here rather than
-# worked around.
-openarch = { path = "../.." }
+# ⭐ ONE LINE, AND IT NAMES NEITHER AN ARCHITECTURE NOR A BACKEND. The
+# `backend-auto` feature is on by default and its target-conditional
+# `feature-deps` row selects the implementation for whatever `--target` this
+# build was given. `mcpp new --template` fills the version in.
+openarch = "{{self.version}}"
 
 # ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
 #

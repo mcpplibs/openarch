@@ -6,6 +6,13 @@
 // and once in the assembly that consumes it, with a static assertion binding
 // the two.
 
+// ⚠️ `openarch/types.h` AND NOT `openarch/abi.h`. This file implements a
+// function the ABI declares, and it needs the ABI's WIDTHS rather than its
+// declarations — the register-file mirror below is this backend's own layout,
+// not something the contract names. Including the contract would compile and
+// would state a dependency that is not there.
+#include <openarch/types.h>
+
 extern "C" void arch_context_entry();   // the trampoline in context.S
 
 namespace {
@@ -17,8 +24,8 @@ namespace {
 // twice; the assertion below catches a size disagreement, and the field order
 // is checked by the probe actually running rather than by a comment.
 struct Saved {
-    unsigned long x[12];   // x19 .. x30   (x29 = frame pointer, x30 = link)
-    unsigned long sp;
+    arch_u64 x[12];   // x19 .. x30   (x29 = frame pointer, x30 = link)
+    arch_u64 sp;
 };
 
 static_assert(sizeof(Saved) == 13 * 8,
@@ -43,7 +50,7 @@ extern "C" void arch_context_init(void* ctx, void (*entry)(void*), void* arg,
     // kernel computing `base + size` has no reason to know this architecture's
     // alignment, and an unaligned SP faults in a way that points nowhere near
     // the cause.
-    auto top = reinterpret_cast<unsigned long>(stack_top) & ~15UL;
+    auto top = reinterpret_cast<arch_u64>(stack_top) & ~15UL;
 
     for (int i = 0; i < 12; ++i) s->x[i] = 0;
 
@@ -52,8 +59,8 @@ extern "C" void arch_context_init(void* ctx, void (*entry)(void*), void* arg,
     // argument register — x0 holds `&from` on the way in. Callee-saved
     // registers are the only ones that survive, which is why the trampoline
     // reads them rather than being handed parameters.
-    s->x[kX19] = reinterpret_cast<unsigned long>(entry);
-    s->x[kX20] = reinterpret_cast<unsigned long>(arg);
-    s->x[kX30] = reinterpret_cast<unsigned long>(&arch_context_entry);
+    s->x[kX19] = reinterpret_cast<arch_u64>(entry);
+    s->x[kX20] = reinterpret_cast<arch_u64>(arg);
+    s->x[kX30] = reinterpret_cast<arch_u64>(&arch_context_entry);
     s->sp      = top;
 }

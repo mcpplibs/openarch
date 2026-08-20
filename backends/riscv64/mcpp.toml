@@ -1,9 +1,9 @@
 # openarch's riscv64 backend: instructions, and nothing else.
 #
 # ⚠️ THIS PACKAGE EXPORTS NO MODULE. It defines the C entry points declared in
-# `spec/include/openarch/abi.h` and is reached only through them. A consumer
-# never names it — `spec/mcpp.toml` pulls it in through a `cfg` dependency on
-# the target's architecture.
+# `abi/include/openarch/abi.h` and is reached only through them. A consumer
+# never names it: the root manifest pulls it in through the `backend` feature,
+# whose target-conditional `feature-deps` row selects this one.
 #
 # The separation is what lets a second implementation of the same ABI exist
 # without touching the specification: a vendor's assembler file, a simulator's
@@ -14,11 +14,17 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-riscv64"
-version     = "0.3.1"
+version     = "0.4.0"
 description = "openarch's riscv64 backend: the instructions behind the ABI"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
 repo        = "https://github.com/mcpplibs/openarch"
+
+# ⭐ THE CAPABILITY, NOT THE PACKAGE NAME, IS WHAT A CONSUMER BINDS TO. The root
+# package's `backend` feature requires `openarch-backend` and names nobody; the
+# resolver binds the one provider in the graph. A consumer's own implementation
+# of `openarch/abi.h` declares the same line and is selected the same way.
+provides    = ["openarch-backend"]
 
 [build]
 sources = ["src/**"]

@@ -39,17 +39,19 @@
 
 module;
 #include <openarch/abi.h>
-export module openarch.pte;
+export module mcpplibs.openarch.pte;
 
 export namespace arch {
 
 // What an access may do. Ordered so that a wider permission is a superset of a
 // narrower one, which is what lets a caller compare them.
+// ⚠️ Defined from the C contract's enumerators rather than written out again;
+// see the note above them in `openarch/abi.h`.
 enum class perm {
-    read,
-    read_write,
-    read_exec,
-    read_write_exec,
+    read            = ARCH_PERM_READ,
+    read_write      = ARCH_PERM_READ_WRITE,
+    read_exec       = ARCH_PERM_READ_EXEC,
+    read_write_exec = ARCH_PERM_READ_WRITE_EXEC,
 };
 
 // What kind of memory is mapped.
@@ -60,15 +62,15 @@ enum class perm {
 // A third value would have to mean the same thing on every machine openarch
 // serves, and "write-combining" does not.
 enum class memory_type {
-    normal,
-    device,
+    normal = ARCH_MT_NORMAL,
+    device = ARCH_MT_DEVICE,
 };
 
 // One leaf entry. Opaque in the same sense as `context`: the value is the
 // architecture's, and a consumer that read its fields would be writing code
 // that only builds on one machine.
 struct pte {
-    unsigned long long bits;
+    arch_u64 bits;
 };
 
 // Builds a leaf entry mapping the physical address `phys`.
@@ -80,7 +82,7 @@ struct pte {
 // ⚠️ The entry is VALID and ACCESSED. Neither machine faults on a first touch
 // in the arrangement this layer serves, and leaving the accessed bit clear
 // costs a fault on every machine to record something nothing here reads.
-inline pte make_leaf(unsigned long long phys, perm p, memory_type mt,
+inline pte make_leaf(arch_u64 phys, perm p, memory_type mt,
                      bool user) noexcept {
     return pte{ ::arch_pte_make_leaf(phys, static_cast<int>(p),
                                      static_cast<int>(mt), user ? 1 : 0) };
@@ -90,7 +92,7 @@ inline pte make_leaf(unsigned long long phys, perm p, memory_type mt,
 inline bool is_valid(pte e) noexcept { return ::arch_pte_valid(e.bits) != 0; }
 
 // The physical address an entry maps, or zero if it maps nothing.
-inline unsigned long long phys_of(pte e) noexcept { return ::arch_pte_phys(e.bits); }
+inline arch_u64 phys_of(pte e) noexcept { return ::arch_pte_phys(e.bits); }
 
 // Programs whatever the machine needs before `memory_type` is meaningful.
 //

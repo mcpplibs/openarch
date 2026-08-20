@@ -6,11 +6,19 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Three jobs, and the first two are ONE job written once: the gate this layer is
-# judged by is that a single probe source runs on two genuinely different
-# machines, so the two rows below differ only in a triple and an emulator
-# package. If they ever need to differ in anything else, the abstraction has
-# failed and this workflow is where that becomes visible.
+# Three jobs, and the first is ONE job written once: the gate this layer is
+# judged by is that a single probe source runs on machines that genuinely
+# differ, so the rows below differ only in a triple and an emulator. If they
+# ever need to differ in anything else, the abstraction has failed and this
+# workflow is where that becomes visible.
+#
+# ⭐ THE THIRD ROW IS WHAT TURNS THE GATE INTO EVIDENCE. riscv64 and aarch64 are
+# both load/store RISC machines with a weak memory model and a fixed instruction
+# width, so an interface that fits both may fit because it is right or because
+# they are alike. x86_64 is neither: variable-length instructions, total store
+# order — under which three of the four barriers need no instruction at all —
+# and an interrupt mechanism that is a table of 256 gates rather than a base
+# register. What survives all three is an abstraction.
 jobs:
   gate:
     name: the probe runs on ${{ matrix.arch }}
@@ -20,10 +28,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: riscv64, triple: riscv64-none-elf, qemu: 'xim:qemu-riscv' }
-          - { arch: aarch64, triple: aarch64-none-elf, qemu: 'xim:qemu-arm'   }
+          - { arch: riscv64, triple: riscv64-none-elf, qemu: 'xim:qemu-riscv', apt: '' }
+          - { arch: aarch64, triple: aarch64-none-elf, qemu: 'xim:qemu-arm',   apt: '' }
+          # ⚠️ THE THIRD ROW'S EMULATOR COMES FROM apt, AND THAT IS A GAP IN THE
+          # ECOSYSTEM RATHER THAN A PREFERENCE.
+          #
+          # The other two emulators are xlings packages because xPack publishes
+          # QEMU per target family and the index carries what it publishes.
+          # xPack has no x86 build, so there is no `xim:qemu-x86` to install —
+          # see .agents/docs/2026-08-21-freestanding-outstanding-four.md §4 in
+          # the engine repository, where building one is staged work.
+          #
+          # Naming apt here rather than quietly relying on whatever is on the
+          # runner keeps the difference visible: this row is the one whose
+          # emulator the ecosystem does not yet own.
+          - { arch: x86_64,  triple: x86_64-none-elf,  qemu: '',              apt: 'qemu-system-x86' }
     env:
-      MCPP_VERSION: 2026.8.20.3
+      MCPP_VERSION: 2026.8.21.1
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -94,18 +115,25 @@ jobs:
       # `qemu-arm` only the two Arm ones. Measured; no single package runs both.
       - name: Install the emulator
         run: |
-          xlings install ${{ matrix.qemu }} -y
-          XLINGS_HOME="$HOME/.mcpp/registry" xlings install ${{ matrix.qemu }} -y
+          if [ -n "${{ matrix.qemu }}" ]; then
+            xlings install ${{ matrix.qemu }} -y
+            XLINGS_HOME="$HOME/.mcpp/registry" xlings install ${{ matrix.qemu }} -y
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ${{ matrix.apt }}
+            qemu-system-x86_64 --version | head -1
+          fi
 
       - name: The layer builds for ${{ matrix.arch }}
         run: |
           # Twice, the first allowed to fail: the toolchain payload is installed
           # during a build, so the first build on a machine that has never
           # targeted this triple is the one that installs it.
-          # ⚠️ THE BACKEND, NOT THE WORKSPACE ROOT. Since 0.3.1 the root is a
-          # workspace and carries no sources of its own; building the backend
-          # for this target pulls the ABI it implements and is what the probe
-          # below will link against.
+          # ⚠️ THE BACKEND, NOT THE ROOT. Since 0.4.0 the root is BOTH the
+          # interface package and the workspace, so building it would build the
+          # interface; what this step wants is the machine half. Building the
+          # backend for this target pulls the ABI it implements and is what the
+          # probe below will link against.
           ( cd backends/${{ matrix.arch }} && mcpp build --target ${{ matrix.triple }} ) || true
           ( cd backends/${{ matrix.arch }} && mcpp build --target ${{ matrix.triple }} )
 
@@ -120,10 +148,26 @@ jobs:
         working-directory: examples/switch
         run: |
           set -euo pipefail
-          mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log
+          if [ -n "${{ matrix.qemu }}" ]; then
+            mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log
+          else
+            # ⚠️ `mcpp build` AND THEN qemu BY HAND, BECAUSE `build.mcpp`
+            # CONFIGURES NO RUNNER FOR THIS TARGET. It asks mcpp where
+            # `xim:qemu-x86` landed and there is no such package; a build
+            # program that fell back to a bare `qemu-system-x86_64` would make
+            # the build depend on what happens to be installed on the machine,
+            # which is the thing the other two rows do not do.
+            mcpp build --target ${{ matrix.triple }}
+            IMG=$(find target/${{ matrix.triple }} -type f -name switch | head -1)
+            test -n "$IMG"
+            timeout -k 5 60 qemu-system-x86_64 -machine q35 -nographic -no-reboot \
+              -kernel "$IMG" 2>&1 | tee run.log
+          fi
           grep -q "task: arg=42"          run.log
           grep -q "witness=7 before=1234" run.log
           grep -q "switch ok"             run.log
+          grep -q "trap: back, witness=1" run.log
+          grep -q "cpu: percpu round-trips" run.log
 
       # The same source produced that output. Asserted rather than trusted: a
       # probe that had quietly grown a per-architecture branch would still pass
@@ -132,10 +176,41 @@ jobs:
         run: |
           set -euo pipefail
           test -f examples/switch/src/main.cpp
-          if grep -qE '__riscv|__aarch64__|MCPP_TARGET_ARCH' examples/switch/src/main.cpp; then
-            echo "the probe branches on the architecture, which is what it exists to avoid"
+
+          # ⚠️ THIS CHECK USED TO READ "NO ARCHITECTURE MACRO APPEARS AT ALL",
+          # AND IT WAS WRONG IN A WAY THAT COST TWO RELEASES OF RED CI.
+          #
+          # The probe must name an architecture in exactly one place: the trap
+          # instruction. `ebreak`, `brk #0` and `int3` are three spellings of
+          # one idea and there is no portable fourth. When the trap interface
+          # landed in 0.3.0 the old check began failing on every push, correctly
+          # by its own wording and wrongly by its intent — and it kept failing
+          # through 0.3.1 because nobody read the runs.
+          #
+          # What the gate actually claims is that the probe is not TWO PROGRAMS.
+          # So: one conditional, and nothing inside it but instructions. A
+          # second conditional, or a line of logic inside the first, is the
+          # thing this is here to catch.
+          NCOND=$(grep -c '^#if defined(__' examples/switch/src/main.cpp || true)
+          if [ "$NCOND" != "1" ]; then
+            grep -n '^#if defined(__' examples/switch/src/main.cpp || true
+            echo "the probe has $NCOND architecture conditionals; it may have exactly one, for the trap instruction"
             exit 1
           fi
+          STRAY=$(awk '
+            /^#if defined\(__/ || /^#elif defined\(__/ { inb=1; next }
+            /^#else/  { next }
+            /^#endif/ { inb=0; next }
+            inb && $0 !~ /^[[:space:]]*(\/\/)?[[:space:]]*$/ \
+                && $0 !~ /asm volatile/ && $0 !~ /^#[[:space:]]*error/ \
+                && $0 !~ /^[[:space:]]*\/\// { print NR": "$0 }
+          ' examples/switch/src/main.cpp)
+          if [ -n "$STRAY" ]; then
+            echo "$STRAY"
+            echo "the architecture conditional contains something other than an instruction"
+            exit 1
+          fi
+          echo "the probe names an architecture once, to emit a trap instruction"
 
           # ⚠️ THE SEPARATION IS ASSERTED, NOT TRUSTED TO THE DIRECTORY NAMES.
           #
@@ -143,15 +218,31 @@ jobs:
           # package as the specification, and the layering was a convention held
           # up by a path. The split made it a dependency graph; these two checks
           # make it a test.
-          if grep -rqE '\basm\b|__asm' spec/src; then
-            echo "the specification contains an instruction; it must not"
+          if grep -rqE '\basm\b|__asm' src; then
+            echo "the interface contains an instruction; it must not"
             exit 1
           fi
           if grep -rq 'export module' backends; then
-            echo "a backend exports a module; it must reach the specification only through the ABI"
+            echo "a backend exports a module; it must reach the interface only through the ABI"
             exit 1
           fi
-          echo "spec owns modules and no instruction; backends own instructions and no module"
+          echo "the interface owns modules and no instruction; backends own instructions and no module"
+
+          # ⚠️ THE ROOT IS BOTH A PACKAGE AND A WORKSPACE, AND THAT IS WHAT
+          # MAKES A CONSUMER'S SIDE ONE LINE. A virtual workspace would put the
+          # interface in a member directory and `openarch = "0.4.0"` would have
+          # to name it. Asserted because the two tables are ordinary TOML and
+          # deleting one would leave a manifest that still builds.
+          grep -q '^\[package\]'   mcpp.toml
+          grep -q '^\[workspace\]' mcpp.toml
+
+          # The two faces reach the same library. The C one is a header a
+          # consumer includes; the C++ one is a module it imports. A face that
+          # disappeared would not fail any build in this repository except the
+          # test that names it.
+          test -f abi/include/mcpplibs/openarch.h
+          grep -q 'export module mcpplibs.openarch;' src/openarch.cppm
+          echo "one package, two faces, three backends"
 
   # ---------------------------------------------------------------------------
   # The half no emulator can check.
@@ -173,7 +264,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.20.3
+      MCPP_VERSION: 2026.8.21.1
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -218,8 +309,63 @@ jobs:
       # header now: a target build instantiates only what it calls — measured,
       # zero foreign symbols in either image — and a host build that calls both
       # gets both, with nothing to activate.
-      - name: Both encoders compile here and agree
-        working-directory: spec
+      # ⚠️ THE TEMPLATE IS RENDERED BY HAND HERE, AND IT HAS TO BE.
+      #
+      # `mcpp new --template` resolves the package from the INDEX and takes no
+      # path, so asking it for a template this commit ADDS would resolve the
+      # previously published version and fail on a template that version does
+      # not carry. The CI for a new template could never pass before the
+      # template was published, which is the wrong way round.
+      #
+      # What belongs to this repository is the template's CONTENT: that the
+      # files it ships generate a project which builds for all three machines.
+      # That the scaffolder can fetch it is mcpp's own concern and mcpp's own
+      # tests.
+      #
+      # ⚠️ The dependency is rewritten to a path. The rendered manifest names
+      # `openarch = "<this version>"`, which is correct for a user and
+      # unresolvable here — this version is not published yet, and a check that
+      # silently fell back to the previous one would be testing the wrong tree.
+      #
+      # ⚠️ LINUX ONLY, AND THAT IS A CHOICE ABOUT PATHS RATHER THAN ABOUT
+      # COVERAGE. The rewrite below puts `$PWD` into a manifest, and on a
+      # Windows runner `$PWD` under Git Bash is `/d/a/openarch/openarch` while
+      # mcpp wants a native path — a mismatch this repository has already been
+      # bitten by once, in a C++ string literal that came out as
+      # `"D:\a\openkal\openkal/include"`. The template's CONTENT is
+      # host-independent; what varies per host is the toolchain payload, and
+      # that is what the `portability` job covers.
+      - name: The template generates a project that builds for all three machines
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          T=templates/three-machines
+          V=$(grep -m1 '^version' mcpp.toml | cut -d'"' -f2)
+          D=$(mktemp -d); mkdir -p "$D/src"
+          for f in mcpp.toml README.md build.mcpp; do
+            sed -e "s/{{project\.name}}/k/g" -e "s/{{self\.version}}/$V/g" \
+                "$T/$f.in" > "$D/$f"
+          done
+          cp "$T"/*.ld "$D/"
+          cp "$T"/src/* "$D/src/"
+          sed -i.bak "s|openarch = \"$V\"|openarch = { path = \"$PWD\" }|" "$D/mcpp.toml"
+          rm -f "$D/mcpp.toml.bak"
+          grep -q "path = " "$D/mcpp.toml" || { cat "$D/mcpp.toml"; echo "the dependency rewrite did not apply"; exit 1; }
+          for t in riscv64-none-elf aarch64-none-elf x86_64-none-elf; do
+            ( cd "$D" && mcpp build --target "$t" > /dev/null 2>&1 ) || true
+            ( cd "$D" && mcpp build --target "$t" ) \
+              || { echo "the template does not build for $t"; exit 1; }
+          done
+          echo "the template builds for riscv64, aarch64 and x86_64"
+
+      # ⚠️ THREE ENCODERS SINCE 0.4.0, AND THE THIRD SETTLED A QUESTION THE
+      # FIRST TWO LEFT OPEN. `openarch.pte` owns `MAIR_EL1` because aarch64's
+      # entry holds an INDEX into it rather than a memory type, while riscv's
+      # holds the type itself — one against one, and "this layer owns the
+      # attribute register" could fairly be called a workaround for aarch64.
+      # x86_64 does the same thing with `IA32_PAT`, on a machine that shares no
+      # lineage with it, so the majority is now two to one the other way.
+      - name: The encoders compile here and agree
         run: mcpp test
 
   # ---------------------------------------------------------------------------
@@ -257,7 +403,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.20.3
+      MCPP_VERSION: 2026.8.21.1
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:

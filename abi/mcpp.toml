@@ -3,8 +3,8 @@
 # ⚠️ THIS PACKAGE EXISTS BECAUSE THE DEPENDENCY GRAPH SAID SO, NOT BECAUSE
 # THREE PACKAGES LOOK TIDIER THAN TWO.
 #
-# The first attempt at the split put the ABI header in the specification and had
-# the backends depend on it, while the specification pulled a backend through a
+# The first attempt at the split put the ABI header in the interface package and
+# had the backends depend on it, while the interface pulled a backend through a
 # `cfg` dependency so that a consumer would never name its own architecture.
 # mcpp rejected that outright:
 #
@@ -24,7 +24,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-abi"
-version     = "0.3.1"
+version     = "0.4.0"
 description = "openarch's C ABI: the contract between the interface and an instruction set's backend"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

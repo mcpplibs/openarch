@@ -1,37 +1,167 @@
 # openarch — the architecture-mechanism layer.
 #
-# ⚠️ THE DIRECTORY TREE IS THE ARCHITECTURE, AND IT WAS NOT UNTIL 0.3.1.
+# ⚠️ THE DIRECTORY TREE IS THE ARCHITECTURE.
 #
-# Until then the specification and both backends lived in one package, with the
-# backends under `src/arch/<arch>/`. That arrangement compiled, and it hid a
-# constraint: `openarch.pte`, `openarch.trap` and `openarch.cpu` were
-# implemented by MODULE IMPLEMENTATION UNITS, which C++ requires to live in the
-# same module — and therefore, here, in the same package. The layering was a
-# convention held up by a directory name.
+#   mcpp.toml            this file: the interface package AND the workspace.
+#   include/…            nothing. The C face lives in `abi/`; see below.
+#   src/*.cppm           the C++ face — module `mcpplibs.openarch`.
+#   tests/               what the two faces must agree about.
+#   abi/                 the contract. Headers only; depends on nothing.
+#   backends/<arch>/     one package per instruction set. Owns instructions;
+#                        exports no module.
+#   examples/switch/     one probe source, run on every machine.
 #
-# Splitting the packages made that constraint visible and forced the fix: every
-# backend now crosses into the specification through a C ABI
-# (`spec/include/openarch/abi.h`), which is what `openarch.context` already did
-# and what openkal has always done. The gain is not tidiness — it is that a
-# specification whose boundary is a C ABI can be implemented by something that
-# is not a C++ module, and one whose boundary is a C++ module cannot.
+# ⭐ THE ROOT IS BOTH A PACKAGE AND A WORKSPACE, AND THAT IS WHAT MAKES THE
+# CONSUMER'S SIDE ONE LINE.
 #
-#   abi/                   the contract. Headers only; depends on nothing.
-#   spec/                  the C++ modules over the contract. Owns every
-#                          module; owns no instruction.
-#   backends/<arch>/       one package per instruction set. Owns instructions;
-#                          exports no module.
-#   examples/switch/       one probe source, run on every machine.
+# A virtual workspace — `[workspace]` with no `[package]` — would mean the
+# interface lived in a member directory, and `openarch = "0.4.0"` would have to
+# name it. The hybrid form removes that: the thing a consumer depends on is the
+# repository, and the members are the parts it is assembled from.
 #
-# ⚠️ A backend is selected by the TARGET, not by the consumer. `spec/mcpp.toml`
-# pulls it through a `cfg` dependency, so a consumer writes `openarch = "..."`
-# and nothing about its own architecture — which is the property the
-# single-package layout had and which a split must not cost.
+# ⚠️ `abi/` IS A SEPARATE PACKAGE BECAUSE THE DEPENDENCY GRAPH SAID SO. The
+# contract cannot live in this package: the backends need it, this package pulls
+# a backend, and mcpp rejects the loop outright —
+#
+#     error: dependency cycle through package 'openarch'
+#           while computing its build-cache key
+#
+# Breaking it by giving up automatic backend selection would make every consumer
+# write its architecture down; breaking it by copying the header into each
+# backend would create files that must agree and no mechanism to make them. The
+# contract belongs to neither side.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch"
+version     = "0.4.0"
+description = "openarch: the architecture-mechanism layer — execution contexts, traps, per-CPU state and address spaces, as one interface over several instruction sets"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
 [workspace]
 members = [
     "abi",
-    "spec",
     "backends/riscv64",
     "backends/aarch64",
+    "backends/x86_64",
     "examples/switch",
 ]
+
+# ⚠️ THIS PACKAGE CONTAINS NO INSTRUCTION FOR ANY MACHINE. Every `asm` in the
+# project lives under `backends/`, and the boundary between the two is
+# `abi/include/openarch/abi.h`. If a register name appears here, the layering
+# has been lost; `tests/` and CI both check it.
+[build]
+sources = ["src/*.cppm"]
+
+[targets.openarch]
+kind = "lib"
+
+# The contract, always. A consumer that only ever calls the C face still reaches
+# it through this package, because `include-dirs` propagate to consumers along a
+# public dependency edge — which is what makes `openarch = "0.4.0"` the whole of
+# the consumer's manifest for either face.
+[dependencies]
+openarch-abi = { path = "abi" }
+
+# ── Which backend, whether one at all, and whose ────────────────────────────
+#
+# ⭐ THREE QUESTIONS THAT HAD BEEN ANSWERED BY ONE MECHANISM.
+#
+#   1. Is an implementation of the ABI linked into this program?
+#   2. If one of ours, which architecture's?
+#   3. Or is it the consumer's own?
+#
+# Until 0.3.1 the backend arrived through `[target.'cfg(…)'.dependencies]`,
+# which answers (2) well and the other two not at all. A kernel that has already
+# written its own trap vector — the case openkal's implementations occupy for
+# the kernel ABI — had no way to say so, and would have got a second one linked
+# beside it: not a diagnostic but a duplicate definition of every symbol.
+#
+# The three are now separate, and the shape is the one `std-freestanding` uses
+# for its allocator, so the ecosystem has one pattern rather than two.
+#
+#   `backend-auto`      the BUILT-IN DEFAULT, on unless switched off. Resolves,
+#                       per target, to the backend for that architecture; on a
+#                       target with no backend it resolves to nothing, which is
+#                       the header-only configuration `tests/` builds on a host.
+#                       This is what makes `openarch = "0.4.0"` the whole of an
+#                       ordinary consumer's manifest.
+#
+#   `backend-<arch>`    the SAME BACKENDS, NAMED. For a consumer that wants the
+#                       choice written down, and for the case `backend-auto`
+#                       cannot serve: one ISA with more than one backend, which
+#                       riscv will need — this one traps into M-mode and a
+#                       kernel under SBI traps into S-mode.
+#
+#   `backend-external`  THE CONSUMER IMPLEMENTS THE ABI ITSELF. Names no
+#                       package: it requires the CAPABILITY `openarch-backend`,
+#                       and the resolver binds the one provider in the graph.
+#                       With none, the build stops at configure time saying so,
+#                       rather than at link time naming a mangled symbol.
+#
+# Three usages, one line each:
+#
+#   | The consumer wants          | What its manifest says                          |
+#   |-----------------------------|-------------------------------------------------|
+#   | the backend for its target  | openarch = "0.4.0"                              |
+#   | a particular one            | { version = "0.4.0", default-features = false,  |
+#   |                             |   features = ["backend-riscv64"] }              |
+#   | its own implementation      | { version = "0.4.0", default-features = false,  |
+#   |                             |   features = ["backend-external"] } + a package  |
+#   |                             |   that provides = ["openarch-backend"]          |
+#
+# ⚠️ `default-features = false` IS REQUIRED IN THE LAST TWO, AND NOT BECAUSE OF
+# TIDINESS. Features are additive: there is no feature a consumer can turn ON
+# that turns `backend-auto` off. Leaving it on alongside a second implementation
+# puts two definitions of the same C symbols in the link, which is a multiple
+# definition rather than a choice.
+#
+# ⚠️ `backend-auto` DOES NOT REQUIRE THE CAPABILITY, AND THE FIRST VERSION OF
+# THIS TABLE HAD IT DO SO. The comment then read "on a hosted target the feature
+# is active and resolves to nothing, which is correct". Measured, it is not:
+#
+#     error: no package provides capability 'openarch-backend' required by
+#            'openarch'; add a dependency that declares
+#            `provides = ["openarch-backend"]`
+#
+# A `requires` is unconditional even when the `feature-deps` that satisfy it are
+# target-conditional, so requiring it made a host build of this package's own
+# tests impossible. The requirement belongs on `backend-external`, where the
+# consumer has asserted that an implementation exists; `backend-auto` resolving
+# to nothing on a machine openarch does not implement is a fact about the
+# target, not an error the consumer can act on.
+#
+# ⚠️ `os = "none"` is part of every predicate. A hosted aarch64 build — a macOS
+# runner, for instance — has an operating system already, and pulling a kernel's
+# machine layer into it once produced ELF assembly compiled for Mach-O.
+[features]
+default = ["backend-auto"]
+
+backend-auto     = []
+backend-external = { requires = ["openarch-backend"] }
+
+backend-riscv64 = []
+backend-aarch64 = []
+backend-x86-64  = []
+
+[target.'cfg(all(arch = "riscv64", os = "none"))'.feature-deps.backend-auto]
+openarch-riscv64 = { path = "backends/riscv64" }
+
+[target.'cfg(all(arch = "aarch64", os = "none"))'.feature-deps.backend-auto]
+openarch-aarch64 = { path = "backends/aarch64" }
+
+[target.'cfg(all(arch = "x86_64", os = "none"))'.feature-deps.backend-auto]
+openarch-x86-64 = { path = "backends/x86_64" }
+
+# Named explicitly, so unconditional: asking for a backend by name on a target
+# it does not serve should fail while assembling it, not resolve to nothing.
+[feature-deps.backend-riscv64]
+openarch-riscv64 = { path = "backends/riscv64" }
+
+[feature-deps.backend-aarch64]
+openarch-aarch64 = { path = "backends/aarch64" }
+
+[feature-deps.backend-x86-64]
+openarch-x86-64 = { path = "backends/x86_64" }

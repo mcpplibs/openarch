@@ -34,19 +34,19 @@
  * unit its own entity, and an inline function referring to one is an ODR
  * violation that no compiler is required to report.
  *
- * ⚠️ `unsigned long long`, NOT `unsigned long`, AND CROSS-PLATFORM CI IS WHAT
- * FOUND IT.
+ * ⚠️ `arch_u64` THROUGHOUT, AND CROSS-PLATFORM CI IS WHAT MADE THAT NECESSARY.
  *
- * A page-table entry is 64 bits on both machines, and `unsigned long` is 64 bits
- * on the systems this was written on. It is 32 on Windows, where `1UL << 53` is
- * a shift wider than the type — undefined, and in practice silently zero rather
- * than an error, so an encoder built there would have produced entries with
- * every high field missing and no diagnostic at all. The host job caught it only
- * because `constexpr` forces the shift to be evaluated at compile time, which
- * turns the silent case into `must be initialized by a constant expression`.
+ * A page-table entry is 64 bits on every machine here. These constants were
+ * once `unsigned long`, which is 64 bits on the systems this was written on and
+ * 32 on Windows — so `1UL << 53` was a shift wider than the type: undefined,
+ * and in practice silently zero rather than an error. An encoder built there
+ * would have produced entries with every high field missing and no diagnostic
+ * at all. The host job caught it only because `constexpr` forces the shift to
+ * be evaluated at compile time, which turns the silent case into `must be
+ * initialized by a constant expression`.
  *
- * `unsigned long long` is at least 64 bits everywhere, which is the property the
- * entries need.
+ * `arch_u64` is defined and ASSERTED to be eight bytes in `openarch/types.h`,
+ * which is the difference between a rule and a mechanism.
  *
  * The integer parameters mirror the module's enumerators in declaration order:
  *
@@ -59,6 +59,8 @@
 #ifndef OPENARCH_PTE_ENCODE_H
 #define OPENARCH_PTE_ENCODE_H
 
+#include <openarch/types.h>
+
 namespace arch {
 
 // ── riscv64: the Sv39/Sv48 leaf, per the privileged specification ───────────
@@ -67,13 +69,13 @@ namespace arch {
 // walked differs, and that is the walker's business rather than the entry's.
 namespace riscv64 {
 
-inline constexpr unsigned long long kV = 1ULL << 0;   // valid
-inline constexpr unsigned long long kR = 1ULL << 1;   // readable
-inline constexpr unsigned long long kW = 1ULL << 2;   // writable
-inline constexpr unsigned long long kX = 1ULL << 3;   // executable
-inline constexpr unsigned long long kU = 1ULL << 4;   // reachable from user mode
-inline constexpr unsigned long long kA = 1ULL << 6;   // accessed
-inline constexpr unsigned long long kD = 1ULL << 7;   // dirty
+inline constexpr arch_u64 kV = 1ULL << 0;   // valid
+inline constexpr arch_u64 kR = 1ULL << 1;   // readable
+inline constexpr arch_u64 kW = 1ULL << 2;   // writable
+inline constexpr arch_u64 kX = 1ULL << 3;   // executable
+inline constexpr arch_u64 kU = 1ULL << 4;   // reachable from user mode
+inline constexpr arch_u64 kA = 1ULL << 6;   // accessed
+inline constexpr arch_u64 kD = 1ULL << 7;   // dirty
 
 // ⚠️ Svpbmt, bits [62:61]: 0 = PMA (whatever the platform says the region is),
 // 1 = NC (non-cacheable, idempotent), 2 = IO (non-cacheable, non-idempotent).
@@ -83,15 +85,15 @@ inline constexpr unsigned long long kD = 1ULL << 7;   // dirty
 // ⭐ THE ENTIRE MEMORY TYPE IS HERE, IN THE ENTRY. That is what the aarch64
 // encoder below cannot reproduce, and the reason `install_memory_attributes`
 // exists in the interface at all.
-inline constexpr unsigned long long kPbmtIo = 2ULL << 61;
+inline constexpr arch_u64 kPbmtIo = 2ULL << 61;
 
 // The physical page number occupies [53:10].
-inline constexpr unsigned long long kPpnShift = 10;
-inline constexpr unsigned long long kPpnMask  = ((1ULL << 44) - 1) << kPpnShift;
+inline constexpr arch_u64 kPpnShift = 10;
+inline constexpr arch_u64 kPpnMask  = ((1ULL << 44) - 1) << kPpnShift;
 
-inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
+inline arch_u64 encode_leaf(arch_u64 phys, int perm, int mt,
                                  bool user) noexcept {
-    unsigned long long e = kV | kA | kR;
+    arch_u64 e = kV | kA | kR;
 
     // ⚠️ `D` is set whenever the mapping is writable. A hart is permitted to
     // fault on the first write to a clean page, and nothing in this layer would
@@ -109,9 +111,9 @@ inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
     return e | (((phys >> 12) << kPpnShift) & kPpnMask);
 }
 
-inline bool entry_valid(unsigned long long bits) noexcept { return (bits & kV) != 0; }
+inline bool entry_valid(arch_u64 bits) noexcept { return (bits & kV) != 0; }
 
-inline unsigned long long entry_phys(unsigned long long bits) noexcept {
+inline arch_u64 entry_phys(arch_u64 bits) noexcept {
     if (!entry_valid(bits)) return 0;
     return ((bits & kPpnMask) >> kPpnShift) << 12;
 }
@@ -132,7 +134,7 @@ inline unsigned long long entry_phys(unsigned long long bits) noexcept {
 namespace aarch64 {
 
 // The descriptor's low two bits: 0b11 is a valid page at the last level.
-inline constexpr unsigned long long kValidPage = 3ULL;
+inline constexpr arch_u64 kValidPage = 3ULL;
 
 // AttrIndx, bits [4:2], indexing the layout install_memory_attributes writes:
 //
@@ -143,31 +145,31 @@ inline constexpr unsigned long long kValidPage = 3ULL;
 // memory. An unused MAIR field is zero, which reads as Device-nGnRnE — the
 // strictest type — so a mis-encoded index degrades to "slow and correct" rather
 // than to "cached device register".
-inline constexpr unsigned long long kAttrNormal = 0ULL << 2;
-inline constexpr unsigned long long kAttrDevice = 1ULL << 2;
+inline constexpr arch_u64 kAttrNormal = 0ULL << 2;
+inline constexpr arch_u64 kAttrDevice = 1ULL << 2;
 
 // AP, bits [7:6]. ⚠️ aarch64 states permission as a PAIR of levels rather than
 // as one set of bits per level, which is the second place the two machines
 // disagree: riscv has a single `U` bit orthogonal to R/W/X.
-inline constexpr unsigned long long kApRwEl1    = 0ULL << 6;   // read-write, privileged
-inline constexpr unsigned long long kApRwEl0El1 = 1ULL << 6;   // read-write, both
-inline constexpr unsigned long long kApRoEl1    = 2ULL << 6;   // read-only, privileged
-inline constexpr unsigned long long kApRoEl0El1 = 3ULL << 6;   // read-only, both
+inline constexpr arch_u64 kApRwEl1    = 0ULL << 6;   // read-write, privileged
+inline constexpr arch_u64 kApRwEl0El1 = 1ULL << 6;   // read-write, both
+inline constexpr arch_u64 kApRoEl1    = 2ULL << 6;   // read-only, privileged
+inline constexpr arch_u64 kApRoEl0El1 = 3ULL << 6;   // read-only, both
 
 // SH, bits [9:8]. Inner shareable for normal memory; device memory ignores the
 // field, and zero is what the manual's examples leave there.
-inline constexpr unsigned long long kShInner = 3ULL << 8;
+inline constexpr arch_u64 kShInner = 3ULL << 8;
 
-inline constexpr unsigned long long kAf  = 1ULL << 10;   // access flag
-inline constexpr unsigned long long kPxn = 1ULL << 53;   // privileged execute never
-inline constexpr unsigned long long kUxn = 1ULL << 54;   // unprivileged execute never
+inline constexpr arch_u64 kAf  = 1ULL << 10;   // access flag
+inline constexpr arch_u64 kPxn = 1ULL << 53;   // privileged execute never
+inline constexpr arch_u64 kUxn = 1ULL << 54;   // unprivileged execute never
 
 // The output address occupies [47:12].
-inline constexpr unsigned long long kOaMask = ((1ULL << 36) - 1) << 12;
+inline constexpr arch_u64 kOaMask = ((1ULL << 36) - 1) << 12;
 
-inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
+inline arch_u64 encode_leaf(arch_u64 phys, int perm, int mt,
                                  bool user) noexcept {
-    unsigned long long e = kValidPage | kAf;
+    arch_u64 e = kValidPage | kAf;
 
     const bool writable   = (perm == 1 || perm == 3);
     const bool executable = (perm == 2 || perm == 3);
@@ -200,14 +202,111 @@ inline unsigned long long encode_leaf(unsigned long long phys, int perm, int mt,
     return e | (phys & kOaMask);
 }
 
-inline bool entry_valid(unsigned long long bits) noexcept { return (bits & 1ULL) != 0; }
+inline bool entry_valid(arch_u64 bits) noexcept { return (bits & 1ULL) != 0; }
 
-inline unsigned long long entry_phys(unsigned long long bits) noexcept {
+inline arch_u64 entry_phys(arch_u64 bits) noexcept {
     if (!entry_valid(bits)) return 0;
     return bits & kOaMask;
 }
 
 }  // namespace aarch64
+
+// ── x86_64: the 4-level paging leaf entry, 4KiB page ────────────────────────
+//
+// ⭐ THE THIRD MACHINE SETTLED A QUESTION THE FIRST TWO LEFT OPEN.
+//
+// `openarch.pte` owns `MAIR_EL1` because aarch64's entry holds an INDEX rather
+// than a memory type, and riscv's holds the type itself. With two machines that
+// was one-against-one, and "this layer owns the attribute register" could
+// fairly be called a workaround for aarch64.
+//
+// x86_64 does the same thing. `PWT`, `PCD` and `PAT` are three scattered bits
+// that together form a three-bit index into `IA32_PAT`, a model-specific
+// register holding eight one-byte memory types. The entry says "type number
+// one"; what number one means is whatever was last written to the MSR. That is
+// aarch64's arrangement with different names, on a machine that shares no
+// lineage with it — so the majority is now two-to-one the other way, and owning
+// the register is the general case rather than the exception.
+//
+// ⚠️ THE THREE INDEX BITS ARE NOT ADJACENT, WHICH IS THE ONE PLACE THIS
+// ENCODING IS EASY TO GET WRONG. `PWT` is bit 3, `PCD` is bit 4, and `PAT` is
+// bit 7 — for a 4KiB entry. In a 2MiB or 1GiB entry the `PAT` bit moves to bit
+// 12, because bit 7 is `PS` there. This encoder builds 4KiB leaves only, which
+// is what the interface offers.
+namespace x86_64 {
+
+inline constexpr arch_u64 kP   = 1ULL << 0;   // present
+inline constexpr arch_u64 kRw  = 1ULL << 1;   // writable
+inline constexpr arch_u64 kUs  = 1ULL << 2;   // reachable from user mode
+inline constexpr arch_u64 kPwt = 1ULL << 3;   // PAT index bit 0
+inline constexpr arch_u64 kPcd = 1ULL << 4;   // PAT index bit 1
+inline constexpr arch_u64 kA   = 1ULL << 5;   // accessed
+inline constexpr arch_u64 kD   = 1ULL << 6;   // dirty
+inline constexpr arch_u64 kPat = 1ULL << 7;   // PAT index bit 2 (4KiB leaf)
+inline constexpr arch_u64 kG   = 1ULL << 8;   // global
+inline constexpr arch_u64 kNx  = 1ULL << 63;  // no-execute
+
+// The indices into the layout `install_memory_attributes` writes:
+//
+//   index 0   0x06  write-back            → PAT=0 PCD=0 PWT=0, i.e. no bits
+//   index 1   0x00  uncacheable           → PAT=0 PCD=0 PWT=1
+//
+// ⚠️ INDEX 1 IS WRITE-THROUGH AT RESET, NOT UNCACHEABLE. The reset value of
+// `IA32_PAT` is 0x0007040600070406, whose entry 1 is `WT`. An encoder relying
+// on reset values would map `device` to write-through memory: writes reach
+// memory eventually rather than immediately, and a device register written that
+// way is written at a time the program did not choose. Nothing faults.
+//
+// This is exactly why the register is programmed rather than assumed — and it
+// is a stronger reason than aarch64's, where an unwritten `MAIR_EL1` field is
+// zero and reads as the STRICTEST type, so the failure degrades safely. Here it
+// does not.
+inline constexpr arch_u64 kAttrNormal = 0ULL;
+inline constexpr arch_u64 kAttrDevice = kPwt;
+
+// The physical address occupies [51:12]. Bits [62:52] are software-available
+// and the MMU ignores them; masking them off keeps `entry_phys` honest.
+inline constexpr arch_u64 kAddrMask = ((1ULL << 40) - 1) << 12;
+
+inline arch_u64 encode_leaf(arch_u64 phys, int perm, int mt,
+                                 bool user) noexcept {
+    arch_u64 e = kP | kA;
+
+    const bool writable   = (perm == 1 || perm == 3);
+    const bool executable = (perm == 2 || perm == 3);
+
+    if (writable) e |= kRw | kD;
+    if (user)     e |= kUs;
+
+    // ⚠️ NO PER-LEVEL EXECUTE CONTROL, WHICH IS THE THIRD DISAGREEMENT AND THE
+    // ONLY ONE THIS LAYER CANNOT HIDE IN THE ENTRY.
+    //
+    // riscv qualifies `X` by `U`; aarch64 has separate `PXN` and `UXN` bits.
+    // x86_64 has one `NX` bit that applies to every privilege level, so the
+    // rule the other two encoders enforce — a user mapping is never
+    // kernel-executable — is not expressible here. It is enforced instead by
+    // `SMEP`, a bit in `CR4` that faults when privileged code fetches from a
+    // user page, which `install_memory_attributes` sets when the processor
+    // reports it.
+    //
+    // Stating it is the price of hiding it, the same way the `MAIR_EL1`
+    // precondition was.
+    if (!executable) e |= kNx;
+
+    if (mt == 1) e |= kAttrDevice;
+    else         e |= kAttrNormal;
+
+    return e | (phys & kAddrMask);
+}
+
+inline bool entry_valid(arch_u64 bits) noexcept { return (bits & kP) != 0; }
+
+inline arch_u64 entry_phys(arch_u64 bits) noexcept {
+    if (!entry_valid(bits)) return 0;
+    return bits & kAddrMask;
+}
+
+}  // namespace x86_64
 
 }  // namespace arch
 

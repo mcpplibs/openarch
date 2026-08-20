@@ -1,10 +1,31 @@
 # {{project.name}}
 
 ```
+xlings install qemu-riscv qemu-arm -y      # once, per machine
 mcpp run --target riscv64-none-elf
 mcpp run --target aarch64-none-elf
 mcpp build --target x86_64-none-elf
 ```
+
+⚠️ **The first line is not optional, and leaving it out fails in a way that
+does not name it.** `mcpp.toml` DECLARES those two packages under `[xlings]
+deps`, and a declaration there is not an install trigger — it is what lets
+`build.mcpp` ask where they landed. Without them installed, every target still
+builds and `mcpp run` reports
+
+```
+error: no runner is configured for 'riscv64-none-elf'
+```
+
+which suggests writing a `runner` key. That advice is right in general and
+wrong here: this project has one, and it is conditional on finding the
+emulator.
+
+⭐ An ordinary bare-metal project never meets this. A board-support package
+declares its emulator in the package index, and those ARE installed with the
+package — so `mcpp new --template <board>` gives a project that runs
+immediately. This one has no board package, because no board serves three
+different instruction sets, which is the whole point of it.
 
 ⭐ **The same `src/main.cpp` on all three.** That is the claim this template
 exists to hand over, and it is worth checking rather than believing: build it

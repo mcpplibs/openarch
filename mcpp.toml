@@ -1,0 +1,38 @@
+# openarch — the architecture-mechanism layer.
+#
+# ⚠️ ONE REPOSITORY, INTERFACES AND BACKENDS TOGETHER, AND THE REASON IS NOT
+# CONVENIENCE.
+#
+# openkal and openhal have OPEN implementer sets: any operating system, any
+# device, and their success depends on third parties arriving. openarch's set is
+# bounded and small — x86_64, aarch64, riscv64, perhaps arm32 and loongarch —
+# and nobody implements "the aarch64 context switch" differently.
+#
+# What follows is that the interface and its implementations must co-evolve.
+# This layer's gate is "the abstraction survives a second architecture", and the
+# only way to learn that the interface is wrong is to add one. Splitting the
+# repository would slow exactly the loop that decides whether the layer is
+# viable.
+#
+# The module boundary is kept regardless: the specification side owns every
+# module, backends contribute definitions and export nothing. A later split is
+# then mechanical rather than a redesign.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch"
+version     = "0.1.0"
+description = "openarch: the architecture-mechanism layer — execution contexts, traps and address spaces, as one interface over several instruction sets"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
+[build]
+# Backends are selected by the resolved target, so a build for one architecture
+# never compiles another's assembly. The engine needs no new axis for this.
+sources = ["src/*.cppm"]
+
+[target.'cfg(arch = "riscv64")'.build]
+sources = ["src/arch/riscv64/**"]
+
+[targets.openarch]
+kind = "lib"

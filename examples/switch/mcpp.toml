@@ -1,0 +1,10 @@
+[package]
+name    = "switch"
+version = "0.1.0"
+
+[build]
+target = "riscv64-none-elf"
+
+[dependencies]
+riscv-virt-rt = "0.4.0"
+openarch      = { path = "../.." }

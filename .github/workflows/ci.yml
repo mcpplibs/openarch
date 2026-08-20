@@ -6,13 +6,24 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Three jobs, and the first two are ONE job written once: the gate this layer is
+# judged by is that a single probe source runs on two genuinely different
+# machines, so the two rows below differ only in a triple and an emulator
+# package. If they ever need to differ in anything else, the abstraction has
+# failed and this workflow is where that becomes visible.
 jobs:
-  build:
-    name: the context-switch probe runs
+  gate:
+    name: the probe runs on ${{ matrix.arch }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: riscv64, triple: riscv64-none-elf, qemu: 'xim:qemu-riscv' }
+          - { arch: aarch64, triple: aarch64-none-elf, qemu: 'xim:qemu-arm'   }
     env:
-      MCPP_VERSION: 2026.8.20.2
+      MCPP_VERSION: 2026.8.20.3
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -73,28 +84,121 @@ jobs:
       # and a regression in that install is exactly what this repository would
       # then stop noticing. A warm-up build exercises it; a manual install
       # replaces it.
-      - name: Warm the target world (mcpp installs the C library lazily)
-        run: |
-          mcpp build --target riscv64-none-elf || true
-
+      # ⚠️ BOTH HOMES, AND THIS IS NOT BELT-AND-BRACES. The shim on PATH
+      # dispatches against whichever home owns it, while `mcpp run` starts the
+      # runner through mcpp's own — an emulator present in only one of them
+      # answers "not installed" from the other.
+      #
+      # The two packages are different builds: xPack compiles QEMU per target
+      # family, so `qemu-riscv` carries only the two RISC-V emulators and
+      # `qemu-arm` only the two Arm ones. Measured; no single package runs both.
       - name: Install the emulator
         run: |
-          xlings install xim:qemu-riscv -y
-          XLINGS_HOME="$HOME/.mcpp/registry" xlings install xim:qemu-riscv -y
+          xlings install ${{ matrix.qemu }} -y
+          XLINGS_HOME="$HOME/.mcpp/registry" xlings install ${{ matrix.qemu }} -y
 
-      - name: The layer builds for riscv64
-        run: mcpp build --target riscv64-none-elf
+      - name: The layer builds for ${{ matrix.arch }}
+        run: |
+          # Twice, the first allowed to fail: the toolchain payload is installed
+          # during a build, so the first build on a machine that has never
+          # targeted this triple is the one that installs it.
+          mcpp build --target ${{ matrix.triple }} || true
+          mcpp build --target ${{ matrix.triple }}
 
-      # ⚠️ The probe asserts the CALLEE-SAVED half of the contract, which a
-      # "does it run" check would miss: a backend that switched stacks but
-      # dropped s-registers would still print both lines.
+      # ⚠️ THE THIRD ASSERTION IS THE ONE THAT CATCHES A HALF-CORRECT BACKEND.
+      #
+      # A switch that saved the return address and the stack pointer and nothing
+      # else would reach the task and deliver its argument — the first two lines
+      # would appear — and would corrupt the caller's callee-saved registers.
+      # `before=1234` is a `volatile` local read after the round trip, and it is
+      # what fails when that happens.
       - name: The probe switches, returns, and preserves callee-saved registers
+        working-directory: examples/switch
         run: |
           set -euo pipefail
-          cd examples/switch
-          mcpp run 2>&1 | tee run.log
-          grep -q "task: arg=42" run.log
+          mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log
+          grep -q "task: arg=42"          run.log
           grep -q "witness=7 before=1234" run.log
+          grep -q "switch ok"             run.log
+
+      # The same source produced that output. Asserted rather than trusted: a
+      # probe that had quietly grown a per-architecture branch would still pass
+      # every line above, and the gate would be measuring two programs.
+      - name: The probe is one source, not two
+        run: |
+          test -f examples/switch/src/main.cpp
+          if grep -qE '__riscv|__aarch64__|MCPP_TARGET_ARCH' examples/switch/src/main.cpp; then
+            echo "the probe branches on the architecture, which is what it exists to avoid"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # The half no emulator can check.
+  #
+  # A mis-shifted field in a page-table entry still maps something, still boots,
+  # and faults later somewhere that names neither the encoder nor the entry. The
+  # encoders are pure functions in per-architecture namespaces, so a host build
+  # holds BOTH and compares them — which is what several of the assertions are,
+  # and what no single-target build could express.
+  host-encoders:
+    name: the page-table encoders agree (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    defaults:
+      run:
+        shell: bash
+    env:
+      MCPP_VERSION: 2026.8.20.3
+      XLINGS_VERSION: v2026.8.17.2
+      XLINGS_NON_INTERACTIVE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xlings (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+            | bash -s "$XLINGS_VERSION"
+          echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+
+      - name: Install xlings (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://d2learn.org/xlings-install.ps1.txt | iex
+          "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install mcpp
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            xlings update > /dev/null 2>&1 || true
+            if xlings install "mcpp@$MCPP_VERSION" -y -g; then break; fi
+            if [ "$attempt" = 6 ]; then
+              echo "::error::mcpp@$MCPP_VERSION never appeared in the index (6 attempts over 5 minutes)."
+              exit 1
+            fi
+            echo "the index has not caught up yet (attempt $attempt of 6); waiting 60s"
+            sleep 60
+          done
+          mcpp --version
+          mcpp self config --mirror GLOBAL
+
+      # ⚠️ NO FEATURE FLAGS, AND THAT IS THE OUTCOME OF A MEASUREMENT. The
+      # encoders were feature-selected translation units until two facts ended
+      # that design: a file named by any feature belongs to it exclusively (with
+      # the feature inactive it is not compiled even when a `cfg` block lists it,
+      # and the library build still reports success), and compiling both
+      # unconditionally instead put 450 bytes of the foreign encoder into a
+      # riscv64 image whose whole probe is about 2000. They are `inline` in a
+      # header now: a target build instantiates only what it calls — measured,
+      # zero foreign symbols in either image — and a host build that calls both
+      # gets both, with nothing to activate.
+      - name: Both encoders compile here and agree
+        run: mcpp test
 
   # ---------------------------------------------------------------------------
   # The cross-compilation is performed FROM three systems, not only from Linux.
@@ -131,7 +235,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.20.2
+      MCPP_VERSION: 2026.8.20.3
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:

@@ -1,0 +1,59 @@
+import mcpp;
+import std;
+
+// The two things this project cannot ask a board package for, because no board
+// package serves both of its machines: where the image is loaded, and which
+// emulator boots it.
+//
+// ⚠️ BOTH ARE SELECTED BY THE TARGET'S ARCHITECTURE RATHER THAN WRITTEN INTO
+// THE MANIFEST. The probe's whole claim is that one project serves two
+// machines; a manifest key would have to be edited between them, which would
+// make that claim false in exactly the way the probe exists to disprove.
+int main() {
+    const std::string arch = mcpp::target_arch() ? mcpp::target_arch() : "";
+
+    // The memory map. A relative path resolves against the PACKAGE root, which
+    // is this directory.
+    if (arch == "riscv64")      mcpp::link_script("riscv64.ld");
+    else if (arch == "aarch64") mcpp::link_script("aarch64.ld");
+    else {
+        std::cerr << "openarch probe: no memory map for arch '" << arch
+                  << "'. The probe runs on the two machines openarch has "
+                     "backends for; adding a third means adding a linker "
+                     "script beside this file and a machine_<arch>.cpp.\n";
+        return 1;
+    }
+
+    // The emulator. ⚠️ Asked for by absolute path rather than named: a bare
+    // `qemu-system-riscv64` resolves through PATH to a shim that dispatches
+    // against whichever home owns it, which is not necessarily the home this
+    // build is using.
+    //
+    // The two packages are different — xPack builds QEMU per target family, so
+    // `qemu-riscv` carries only the two RISC-V emulators and `qemu-arm` only
+    // the two Arm ones. There is no single package that runs both machines.
+    const char* pkg = (arch == "riscv64") ? "qemu-riscv" : "qemu-arm";
+    const char* sys = (arch == "riscv64") ? "riscv64"    : "aarch64";
+    if (const char* dir = mcpp::xpkg_dir("xim", pkg); dir && *dir) {
+        mcpp::runner(std::format("{}/bin/qemu-system-{}", dir, sys).c_str());
+        mcpp::runner("-machine");
+        mcpp::runner("virt");
+        // ⚠️ aarch64's `virt` has no default CPU that implements the features
+        // this image needs; riscv's does. Naming one on the machine that
+        // requires it rather than on both, so that the argument list says which
+        // machine needed it.
+        if (arch == "aarch64") { mcpp::runner("-cpu"); mcpp::runner("cortex-a53"); }
+        mcpp::runner("-nographic");
+        mcpp::runner("-no-reboot");
+        // riscv's `virt` loads OpenSBI as firmware unless told otherwise, and
+        // this image is the whole program. aarch64's `virt` needs no such
+        // instruction: with `-kernel` and no `-bios` it runs the image directly.
+        if (arch == "riscv64") { mcpp::runner("-bios"); mcpp::runner("none"); }
+        mcpp::runner("-kernel");
+    }
+
+    mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
+    mcpp::rerun_if_changed("riscv64.ld");
+    mcpp::rerun_if_changed("aarch64.ld");
+    return 0;
+}

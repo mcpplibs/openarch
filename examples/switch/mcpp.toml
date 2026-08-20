@@ -2,9 +2,46 @@
 name    = "switch"
 version = "0.1.0"
 
+# ⚠️ NO `[build] target`. The probe's whole claim is that one project serves two
+# machines, so the target arrives on the command line — `mcpp run --target
+# riscv64-none-elf` and `--target aarch64-none-elf` — and nothing in this file
+# names either of them except the two source selections below.
 [build]
-target = "riscv64-none-elf"
+sources = ["src/main.cpp"]
+
+# The zero-libc tier on both machines. openarch references no C library symbol,
+# and the probe prints by storing to a UART rather than by calling one, so a C
+# library would be a payload nothing in this project calls.
+[target.riscv64-none-elf]
+sysroot = ""
+
+[target.aarch64-none-elf]
+sysroot = ""
+
+[target.'cfg(arch = "riscv64")'.build]
+sources = ["src/machine_riscv64.cpp"]
+
+[target.'cfg(arch = "aarch64")'.build]
+sources = ["src/machine_aarch64.cpp"]
 
 [dependencies]
-riscv-virt-rt = "0.4.1"
-openarch      = { path = "../.." }
+openarch = { path = "../.." }
+
+# ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
+#
+# `mcpp::xpkg_dir` resolves a package the PROJECT declares, not any package that
+# happens to be installed — measured: with the payload present on disk and no
+# declaration here, it returned an empty string and build.mcpp emitted no
+# runner, so `mcpp run` reported "no runner is configured" for a project whose
+# build program had just tried to configure one.
+#
+# A board-support package declares its emulator in the index descriptor's
+# platform `deps`, which is why an ordinary bare-metal project never writes this
+# section. This probe has no board package — it cannot, because no board package
+# serves both of its machines — so it declares them itself.
+#
+# Both, on every build: which one is used is decided by the target, and
+# declaring only one would make the manifest depend on the target the same way
+# a `runner` key would.
+[xlings]
+deps = ["qemu-riscv", "qemu-arm"]

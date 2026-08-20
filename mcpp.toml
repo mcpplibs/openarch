@@ -20,7 +20,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch"
-version     = "0.1.0"
+version     = "0.2.0"
 description = "openarch: the architecture-mechanism layer — execution contexts, traps and address spaces, as one interface over several instruction sets"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
@@ -31,8 +31,34 @@ repo        = "https://github.com/mcpplibs/openarch"
 # never compiles another's assembly. The engine needs no new axis for this.
 sources = ["src/*.cppm"]
 
+# ⚠️ THE INSTRUCTION SET IS SELECTED BY `cfg`, AND THERE IS NO FEATURE AXIS IN
+# THIS PACKAGE AT ALL. BOTH HALVES OF THAT ARE MEASURED RATHER THAN PREFERRED.
+#
+# **Why not a feature for the ISA.** Which backend is correct is decided by the
+# target triple. A feature that selected a foreign one could only express a
+# mistake — the assembly would not assemble, or would assemble and not link. An
+# option whose only reachable states are "right" and "broken" is not an option.
+#
+# **Why not a feature for the interface set.** "Contexts but not page tables" is
+# a request for LESS, and mcpp features are additive and unified across the
+# dependency graph: a middle library activating one turns it on for a root that
+# never asked. A subset knob would be a promise the engine cannot keep.
+#
+# **Why not a feature for host-testable encoders, which is what this package
+# actually wanted.** Two measurements ended that design. A file named by any
+# feature belongs to that feature exclusively — with the feature inactive it is
+# not compiled even when a `cfg` block lists it explicitly, and the library
+# build still reports success because the missing definition only surfaces at
+# the consumer's link. And compiling both encoders unconditionally instead put
+# 450 bytes of the foreign one into a riscv64 image whose whole probe is about
+# 2000. `inline` in a header satisfies both without a knob: a target build
+# instantiates only what it calls (measured: zero foreign symbols in either
+# image), and a host build that calls both gets both.
 [target.'cfg(arch = "riscv64")'.build]
 sources = ["src/arch/riscv64/**"]
+
+[target.'cfg(arch = "aarch64")'.build]
+sources = ["src/arch/aarch64/**"]
 
 [targets.openarch]
 kind = "lib"

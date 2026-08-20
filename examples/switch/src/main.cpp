@@ -1,51 +1,70 @@
-// The A0 probe: two contexts, switched between, and control returning.
+// The gate: one probe, two instruction sets.
 //
-// ⚠️ WHAT THIS PROVES AND WHAT IT DOES NOT.
+// WHAT THIS ASSERTS, AND WHY IT IS THE WHOLE POINT
 //
-// It proves the riscv64 backend saves and restores the callee-saved set
-// correctly, that a context which has never run starts at its entry point with
-// its argument, and that switching back resumes the caller where it left off.
+// An interface shaped around one instruction set always fits it. The only way
+// to learn that `arch::context` is a real abstraction rather than a
+// transcription of riscv64's register file is to run the same source on a
+// machine whose register file, calling convention and stack rules are
+// different. aarch64 is that machine: different callee-saved set, different
+// stack alignment rule, a link register instead of a return-address register.
 //
-// It does not prove the ABSTRACTION holds, and no single-architecture test can.
-// The gate for this layer is that one interface survives a second, genuinely
-// different machine; an interface shaped around one instruction set always fits
-// that instruction set.
-import mcpplibs.riscv_virt_rt;
+// Three observations, each of which would fail differently if the abstraction
+// were wrong:
+//
+//   1. the switch reaches the task           — the saved PC/LR is right
+//   2. the task's argument arrives           — the argument survives a transfer
+//                                              that restores no argument register
+//   3. a callee-saved local survives         — the switch really saves and
+//      the round trip                          restores the callee-saved set
+//
+// ⚠️ Observation 3 is the one that catches a half-correct backend. A switch
+// that saves the return address and the stack pointer and nothing else passes
+// the first two and corrupts the caller.
 import openarch.context;
+
+#include "machine.h"
 
 namespace {
 
 arch::context g_main;
 arch::context g_task;
+
 alignas(16) unsigned char g_stack[4096];
 
-// Values held in callee-saved registers across the switch. If the backend
-// dropped or reordered a register, these would come back wrong — which is the
-// half of the contract that a "does it run" test would miss.
 volatile int g_witness = 0;
 
 [[noreturn]] void task(void* arg) {
-    board::printf("task: arg=%d\n", static_cast<int>(reinterpret_cast<long>(arg)));
+    machine::print("task: arg=");
+    machine::print_int(static_cast<int>(reinterpret_cast<long>(arg)));
+    machine::putc('\n');
     g_witness = 7;
-    // Back to whoever started us. This never returns, which is the contract:
-    // the trampoline that entered this function has no caller.
     arch::arch_context_switch(g_task, g_main);
-    for (;;) {}
+    // Unreachable: nothing switches back to this context.
+    for (;;) { }
 }
 
 }  // namespace
 
-extern "C" int main() {
+extern "C" int probe_main() {
     arch::arch_context_init(g_task, &task, reinterpret_cast<void*>(42L),
                             g_stack + sizeof g_stack);
 
-    // Live values in callee-saved registers, so that a backend which failed to
-    // restore them is caught rather than merely surviving.
+    // ⚠️ `volatile` and read after the round trip. A plain local would be
+    // allowed to live in a caller-saved register or be re-materialised, and
+    // then it would prove nothing about what the switch preserved.
     volatile int before = 1234;
-    board::println("main: switching to task");
-    arch::arch_context_switch(g_main, g_task);
-    board::printf("main: back, witness=%d before=%d\n", g_witness,
-                  static_cast<int>(before));
 
-    return (g_witness == 7 && before == 1234) ? 0 : 1;
+    machine::print("main: switching to task\n");
+    arch::arch_context_switch(g_main, g_task);
+
+    machine::print("main: back, witness=");
+    machine::print_int(g_witness);
+    machine::print(" before=");
+    machine::print_int(static_cast<int>(before));
+    machine::putc('\n');
+
+    const bool ok = (g_witness == 7 && before == 1234);
+    machine::print(ok ? "switch ok\n" : "switch FAILED\n");
+    return ok ? 0 : 1;
 }

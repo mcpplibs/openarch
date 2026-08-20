@@ -47,10 +47,26 @@ export namespace arch {
 // caller, which is what lets a kernel place contexts inside its own task
 // structures rather than allocating them.
 //
-// ⚠️ 128 bytes covers riscv64's thirteen registers with room for the frame
-// pointer conventions of the other two. It is checked against the real size by
-// a static assertion in the backend, so a machine that needs more fails to
-// build rather than corrupting the next object.
+// ⚠️ 128 bytes, and the second architecture is what turned that number from a
+// guess into a statement. riscv64 needs 112 (ra, sp, s0-s11); aarch64 needs
+// 104 (x19-x30, sp). Both are checked against the real layout by a static
+// assertion in the backend, so a machine that needs more fails to build rather
+// than corrupting the next object.
+//
+// ⭐ A SAVED CONTEXT IS INTEGER STATE. NEITHER BACKEND SAVES FLOATING-POINT
+// REGISTERS, AND THAT IS THE INTERFACE'S CONTRACT RATHER THAN EITHER ONE'S
+// SHORTCUT.
+//
+// This was implicit while one architecture existed, because a single backend
+// cannot distinguish "the interface says so" from "this machine happens to work
+// that way". Writing the aarch64 backend forced the question and the arithmetic
+// answered it: AAPCS64 also names d8-d15 callee-saved, and saving them would
+// need 168 bytes — which does not fit the size reserved here. The reserved size
+// had already assumed the contract; nothing had said so.
+//
+// A kernel whose tasks use floating point saves that state itself, or compiles
+// with floating point disabled, which is what a bare-metal kernel ordinarily
+// does.
 struct context {
     alignas(16) unsigned char storage[128];
 };

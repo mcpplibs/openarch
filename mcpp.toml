@@ -20,7 +20,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch"
-version     = "0.2.0"
+version     = "0.3.0"
 description = "openarch: the architecture-mechanism layer — execution contexts, traps and address spaces, as one interface over several instruction sets"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

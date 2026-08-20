@@ -281,6 +281,28 @@ The feature decides *whether* a backend is linked; the predicate decides *which*
 runner, for instance — has an operating system already, and matching on the
 architecture alone once compiled ELF assembly for Mach-O.
 
+## Starting from it
+
+```
+mcpp new mykernel --template openarch
+cd mykernel
+mcpp run --target riscv64-none-elf
+mcpp run --target aarch64-none-elf
+mcpp build --target x86_64-none-elf
+```
+
+The template is the probe: one `src/main.cpp`, three `machine_<arch>.cpp` files
+carrying the console and the power-off register, three linker scripts, and — on
+x86_64 only — the hundred instructions that reach long mode. ⭐ It is worth
+building for two targets and comparing the output rather than taking the claim
+on trust.
+
+⚠️ CI renders the template by hand rather than through `mcpp new`. The
+scaffolder resolves `--template` from the index and takes no path, so asking it
+for a template a commit ADDS would resolve the previously published version and
+fail on a template that version does not carry. What belongs here is the
+template's content; that the scaffolder can fetch it is mcpp's own concern.
+
 ## Why one repository
 
 

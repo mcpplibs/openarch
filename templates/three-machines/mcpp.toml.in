@@ -1,0 +1,65 @@
+[package]
+name    = "{{project.name}}"
+version = "0.1.0"
+
+# ⚠️ NO `[build] target`. This project's whole claim is that ONE source serves
+# three machines, so the target arrives on the command line — `mcpp run --target
+# riscv64-none-elf`, `--target aarch64-none-elf`, `mcpp build --target
+# x86_64-none-elf` — and nothing in this file names any of them except the three
+# source selections below.
+#
+# Adding `target = "..."` here would make the claim untestable, which is a
+# larger loss than the convenience.
+[build]
+sources = ["src/main.cpp"]
+
+# The zero-libc tier on every machine. openarch references no C library symbol,
+# and this project prints by storing to a UART (or, on x86, by an `out`) rather
+# than by calling one, so a C library would be a payload nothing here calls.
+[target.riscv64-none-elf]
+sysroot = ""
+
+[target.aarch64-none-elf]
+sysroot = ""
+
+[target.x86_64-none-elf]
+sysroot = ""
+
+[target.'cfg(arch = "riscv64")'.build]
+sources = ["src/machine_riscv64.cpp"]
+
+[target.'cfg(arch = "aarch64")'.build]
+sources = ["src/machine_aarch64.cpp"]
+
+# ⚠️ TWO FILES AND NOT ONE. Every other machine's half is a single `.cpp` whose
+# `asm` block carries a four-instruction entry stub. Reaching the state openarch
+# assumes on x86_64 — long mode, a 64-bit code segment, page tables — takes its
+# own linker section, so it is a file rather than a block.
+[target.'cfg(arch = "x86_64")'.build]
+sources = ["src/machine_x86_64.cpp", "src/boot_x86_64.S"]
+
+[dependencies]
+# ⭐ ONE LINE, AND IT NAMES NEITHER AN ARCHITECTURE NOR A BACKEND. The
+# `backend-auto` feature is on by default and its target-conditional
+# `feature-deps` row selects the implementation for whatever `--target` this
+# build was given. `mcpp new --template` fills the version in.
+openarch = "{{self.version}}"
+
+# ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
+#
+# `mcpp::xpkg_dir` resolves a package the PROJECT declares, not any package that
+# happens to be installed — measured: with the payload present on disk and no
+# declaration here, it returned an empty string and build.mcpp emitted no
+# runner, so `mcpp run` reported "no runner is configured" for a project whose
+# build program had just tried to configure one.
+#
+# A board-support package declares its emulator in the index descriptor's
+# platform `deps`, which is why an ordinary bare-metal project never writes this
+# section. This probe has no board package — it cannot, because no board package
+# serves both of its machines — so it declares them itself.
+#
+# Both, on every build: which one is used is decided by the target, and
+# declaring only one would make the manifest depend on the target the same way
+# a `runner` key would.
+[xlings]
+deps = ["qemu-riscv", "qemu-arm"]

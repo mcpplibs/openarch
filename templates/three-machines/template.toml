@@ -1,0 +1,13 @@
+[template]
+description = "A bare-metal starting point that targets three instruction sets from one source: riscv64, aarch64 and x86_64"
+default     = true
+
+# ⚠️ THE SELF-DEPENDENCY IS INJECTED, AND UNLIKE A BOARD PACKAGE'S TEMPLATE IT
+# NEEDS NO FEATURE.
+#
+# `openarch = "0.4.0"` is the whole of it: the `backend-auto` feature is on by
+# default and resolves to whichever backend matches the `--target` the project
+# is built for. A template that named a feature here would be writing one
+# architecture into a project whose subject is that it does not have one.
+[template.inject]
+self = true

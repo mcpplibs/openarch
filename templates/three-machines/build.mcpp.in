@@ -30,25 +30,25 @@ int main() {
     // against whichever home owns it, which is not necessarily the home this
     // build is using.
     //
-    // The two packages are different — xPack builds QEMU per target family, so
-    // `qemu-riscv` carries only the two RISC-V emulators and `qemu-arm` only
-    // the two Arm ones. There is no single package that runs both machines.
-    // ⚠️ x86_64 IS ABSENT FROM THIS TABLE, AND THE ABSENCE IS THE ECOSYSTEM'S
-    // RATHER THAN THIS PROBE'S. xPack publishes QEMU per target family, and the
-    // index carries `qemu-riscv` and `qemu-arm` because those are the families
-    // it publishes. There is no `xim:qemu-x86`, so on that target this build
-    // program configures no runner and `mcpp build` is the whole of what CI can
-    // do — which is stated here rather than worked around, because a runner
-    // silently pointing at a host `qemu-system-x86_64` would make the build
-    // depend on what happens to be installed.
-    if (arch == "x86_64") {
-        mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
-        mcpp::rerun_if_changed("x86_64.ld");
-        return 0;
-    }
-
-    const char* pkg = (arch == "riscv64") ? "qemu-riscv" : "qemu-arm";
-    const char* sys = (arch == "riscv64") ? "riscv64"    : "aarch64";
+    // ⭐ THREE PACKAGES, ONE PER MACHINE, AND THAT IS THE ECOSYSTEM'S SHAPE
+    // RATHER THAN THIS PROBE'S. QEMU is published per target family, so
+    // `qemu-riscv` carries the RISC-V emulators, `qemu-arm` the Arm ones and
+    // `qemu-x86` the x86_64 one. No single package runs all three machines,
+    // which is why this table exists at all.
+    //
+    // ⚠️ x86_64 WAS AN EXCEPTION HERE UNTIL 0.5.0, and the exception was the
+    // absence of a package rather than a property of the machine: with no
+    // `xim:qemu-x86` this program configured no runner, CI could assert only
+    // `mcpp build`, and the third machine was the one machine whose findings
+    // could not be reproduced by running it. `mcpplibs/qemu-x86` builds that
+    // emulator from source for five hosts and the exception is gone — the row
+    // below is now the same shape as the other two.
+    const char* pkg = (arch == "riscv64") ? "qemu-riscv"
+                    : (arch == "aarch64") ? "qemu-arm"
+                                          : "qemu-x86";
+    const char* sys = (arch == "riscv64") ? "riscv64"
+                    : (arch == "aarch64") ? "aarch64"
+                                          : "x86_64";
     // ⚠️ DECLARED IS NOT INSTALLED, AND THE DIFFERENCE IS INVISIBLE UNTIL
     // SOMEBODY BUILDS THIS ON A MACHINE THAT HAS NOT ALREADY GOT THE EMULATOR.
     //
@@ -79,8 +79,14 @@ int main() {
     // So the README carries it, and this comment records why it has to.
     if (const char* dir = mcpp::xpkg_dir("xim", pkg); dir && *dir) {
         mcpp::runner(std::format("{}/bin/qemu-system-{}", dir, sys).c_str());
+        // ⚠️ THE MACHINE TYPE IS NOT UNIVERSAL. `virt` is the para-virtual
+        // board the two RISC machines use; x86_64 has no such board and boots
+        // `q35`, a model of real PC chipset hardware. The image reaches it
+        // through multiboot rather than through `-kernel`'s raw-image path,
+        // which is why the linker script for that machine carries an a.out
+        // kludge the other two do not need.
         mcpp::runner("-machine");
-        mcpp::runner("virt");
+        mcpp::runner(arch == "x86_64" ? "q35" : "virt");
         // ⚠️ aarch64's `virt` has no default CPU that implements the features
         // this image needs; riscv's does. Naming one on the machine that
         // requires it rather than on both, so that the argument list says which
@@ -98,5 +104,6 @@ int main() {
     mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
     mcpp::rerun_if_changed("riscv64.ld");
     mcpp::rerun_if_changed("aarch64.ld");
+    mcpp::rerun_if_changed("x86_64.ld");
     return 0;
 }

@@ -169,17 +169,25 @@ jobs:
       # unresolvable here — this version is not published yet, and a check that
       # silently fell back to the previous one would be testing the wrong tree.
       #
-      # ⚠️ IN THE `gate` JOB'S riscv64 ROW, AND THE PLACEMENT IS THE FIX FOR A
-      # MISTAKE. 0.4.0 put this in `host-encoders`, which installs no emulator —
+      # ⚠️ IN THE `gate` JOB, AND THE PLACEMENT IS THE FIX FOR A MISTAKE MADE
+      # TWICE. 0.4.0 put this in `host-encoders`, which installs no emulator —
       # so the check could only ever assert `mcpp build`, and a generated project
       # that ran on nothing passed it. The emulator lives here.
       #
-      # One row rather than all three: the template's CONTENT is
+      # ⚠️ AND 0.5.0 MADE THE SAME MISTAKE ONE SIZE SMALLER. This step ran only
+      # in the riscv64 row, which installs only the RISC-V emulator, so the
+      # claim it could support was "the template runs on riscv64" while the
+      # template's README had begun to claim all three. It did not: the
+      # template's own `build.mcpp.in` was left with x86_64's old early return,
+      # and nothing here could see that. The RUN half is per-row from 0.5.1 —
+      # each row asserts the machine whose emulator it installed.
+      #
+      # The BUILD half stays on one row: the template's CONTENT is
       # host-independent, and the rewrite below puts `$PWD` into a manifest,
       # which on a Windows runner is `/d/a/openarch/openarch` under Git Bash
       # while mcpp wants a native path — a mismatch this repository has been
       # bitten by before.
-      - name: The template generates a project that builds for all three machines and runs
+      - name: The template generates a project that builds for all three machines
         if: matrix.arch == 'riscv64'
         run: |
           set -euo pipefail
@@ -202,25 +210,47 @@ jobs:
           done
           echo "the template builds for riscv64, aarch64 and x86_64"
 
-          # ⚠️ AND IT MUST RUN, NOT ONLY BUILD — THIS ASSERTION IS HERE BECAUSE
-          # ITS ABSENCE SHIPPED A BROKEN QUICK START.
-          #
-          # 0.4.0's check stopped at `mcpp build`, so a generated project that
-          # compiled for all three machines and ran on none of them passed. What
-          # was missing is not in the sources: `mcpp.toml` declares the emulator
-          # packages under `[xlings] deps`, which is not an install trigger, so
-          # on a machine that has not installed them `build.mcpp` finds nothing
-          # and configures no runner. Measured against a freshly unpacked mcpp.
-          #
-          # This job installs the emulator in an earlier step, so the run below
-          # exercises the path a user gets AFTER the README's one-time install.
-          # What it cannot cover is the before — see the note in the README, and
-          # the comment in build.mcpp on why a build program cannot warn.
-          ( cd "$D" && mcpp run --target riscv64-none-elf 2>&1 | tee run.log ) \
-            || { cat "$D/run.log"; echo "the generated project does not run"; exit 1; }
+      # ⚠️ AND IT MUST RUN, NOT ONLY BUILD — THIS ASSERTION EXISTS BECAUSE ITS
+      # ABSENCE SHIPPED A BROKEN QUICK START, AND IT IS PER-ROW BECAUSE ITS
+      # BEING ON ONE ROW SHIPPED A SECOND ONE.
+      #
+      # 0.4.0's check stopped at `mcpp build`, so a generated project that
+      # compiled for all three machines and ran on none of them passed. What was
+      # missing is not in the sources: `mcpp.toml` declares the emulator packages
+      # under `[xlings] deps`, which is not an install trigger, so on a machine
+      # that has not installed them `build.mcpp` finds nothing and configures no
+      # runner.
+      #
+      # Each row installs one emulator, so each row asserts one machine. A row
+      # cannot assert a machine whose emulator it does not have — which is the
+      # whole reason the previous arrangement could not see that the template's
+      # `build.mcpp.in` still had x86_64's early return in it.
+      #
+      # This job installs the emulator in an earlier step, so the run below
+      # exercises the path a user gets AFTER the README's one-time install. What
+      # it cannot cover is the before — see the note in the README, and the
+      # comment in build.mcpp on why a build program cannot warn.
+      - name: The template's project runs on ${{ matrix.arch }}, not only builds
+        run: |
+          set -euo pipefail
+          T=templates/three-machines
+          V=$(grep -m1 '^version' mcpp.toml | cut -d'"' -f2)
+          D=$(mktemp -d); mkdir -p "$D/src"
+          for f in mcpp.toml README.md build.mcpp; do
+            sed -e "s/{{project\.name}}/k/g" -e "s/{{self\.version}}/$V/g" \
+                "$T/$f.in" > "$D/$f"
+          done
+          cp "$T"/*.ld "$D/"
+          cp "$T"/src/* "$D/src/"
+          sed -i.bak "s|openarch = \"$V\"|openarch = { path = \"$PWD\" }|" "$D/mcpp.toml"
+          rm -f "$D/mcpp.toml.bak"
+          grep -q "path = " "$D/mcpp.toml" || { cat "$D/mcpp.toml"; echo "the dependency rewrite did not apply"; exit 1; }
+          ( cd "$D" && mcpp build --target ${{ matrix.triple }} > /dev/null 2>&1 ) || true
+          ( cd "$D" && mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log ) \
+            || { cat "$D/run.log"; echo "the generated project does not run on ${{ matrix.arch }}"; exit 1; }
           grep -q "switch ok" "$D/run.log" \
             || { cat "$D/run.log"; echo "the generated project ran without reaching the end"; exit 1; }
-          echo "the template's project runs, not only builds"
+          echo "the template's project runs on ${{ matrix.arch }}"
 
       # The same source produced that output. Asserted rather than trusted: a
       # probe that had quietly grown a per-architecture branch would still pass

@@ -288,7 +288,7 @@ mcpp new mykernel --template openarch
 cd mykernel
 mcpp run --target riscv64-none-elf
 mcpp run --target aarch64-none-elf
-mcpp build --target x86_64-none-elf
+mcpp run --target x86_64-none-elf
 ```
 
 The template is the probe: one `src/main.cpp`, three `machine_<arch>.cpp` files
@@ -317,7 +317,6 @@ loop that decides whether the layer is viable.
 
 | | Status |
 |---|---|
-| Timer ticks | Not started. Unlike the four interfaces here, a tick is not obviously mechanism: riscv's `mtimecmp` is a memory-mapped comparator whose address the *board* decides, aarch64's is an architectural system register, and x86_64 has at least three unrelated sources. An interface over those may be a machine layer's business or a board package's, and the question is worth answering before the code is written |
-| `xim:qemu-x86` | The x86_64 row's emulator is not an ecosystem package. xPack publishes QEMU per target family and has no x86 build, so CI installs it with apt and says so. Building one for the five host targets the index serves is staged work |
+| Timer ticks | **Answered, not implemented.** `examples/clock-study` reads a counter on all three machines directly and `FINDING.md` records the result: all three provide a monotonic counter with one address-free instruction, and only aarch64 reports how fast it runs. So `counter()` belongs here and `frequency()` and `set_deadline()` do not — the interface is narrower than the one that would have been written first |
 | Page-table **walking** | Out of scope. Building an entry is mechanism; deciding where entries go is policy, and belongs to the kernel |
 | A second backend for one ISA | The arrangement now supports it — `backend-riscv64` names a backend rather than an architecture — and riscv will want it: this backend traps into M-mode, and a kernel under SBI traps into S-mode |

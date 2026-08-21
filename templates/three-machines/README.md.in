@@ -1,14 +1,14 @@
 # {{project.name}}
 
 ```
-xlings install qemu-riscv qemu-arm -y      # once, per machine
+xlings install qemu-riscv qemu-arm qemu-x86 -y   # once, per machine
 mcpp run --target riscv64-none-elf
 mcpp run --target aarch64-none-elf
-mcpp build --target x86_64-none-elf
+mcpp run --target x86_64-none-elf
 ```
 
 ⚠️ **The first line is not optional, and leaving it out fails in a way that
-does not name it.** `mcpp.toml` DECLARES those two packages under `[xlings]
+does not name it.** `mcpp.toml` DECLARES those three packages under `[xlings]
 deps`, and a declaration there is not an install trigger — it is what lets
 `build.mcpp` ask where they landed. Without them installed, every target still
 builds and `mcpp run` reports
@@ -60,12 +60,13 @@ different routes.
 `riscv64` and `aarch64` run under emulators the package index carries, and
 `build.mcpp` configures them.
 
-⚠️ **x86_64 builds but does not run from `mcpp run`,** and the manifest says so
-rather than working around it. The index has no `xim:qemu-x86` — xPack publishes
-QEMU per target family and has no x86 build — and a build program that fell back
-to whatever `qemu-system-x86_64` happened to be on the machine would make the
-build depend on what is installed. Run it by hand:
+All three run under emulators the package index carries, and `build.mcpp`
+configures each from the package it was installed into rather than from a bare
+name on `PATH`.
 
-```
-qemu-system-x86_64 -machine q35 -nographic -no-reboot -kernel <image>
-```
+⚠️ **The machine type is not the same on all three.** `riscv64` and `aarch64`
+boot the para-virtual `virt` board; x86_64 has no such board and boots `q35`, a
+model of real PC chipset hardware, reaching it through multiboot rather than
+through the raw-image path `-kernel` takes on the other two. `build.mcpp`
+selects it; this is noted so the difference is legible when reading the
+generated command line.

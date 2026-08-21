@@ -22,7 +22,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-x86-64"
-version     = "0.4.1"
+version     = "0.5.0"
 description = "openarch's x86_64 backend: the instructions behind the ABI"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

@@ -14,7 +14,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-aarch64"
-version     = "0.4.1"
+version     = "0.5.0"
 description = "openarch's aarch64 backend: the instructions behind the ABI"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

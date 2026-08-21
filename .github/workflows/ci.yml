@@ -28,21 +28,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: riscv64, triple: riscv64-none-elf, qemu: 'xim:qemu-riscv', apt: '' }
-          - { arch: aarch64, triple: aarch64-none-elf, qemu: 'xim:qemu-arm',   apt: '' }
-          # ⚠️ THE THIRD ROW'S EMULATOR COMES FROM apt, AND THAT IS A GAP IN THE
-          # ECOSYSTEM RATHER THAN A PREFERENCE.
+          - { arch: riscv64, triple: riscv64-none-elf, qemu: 'xim:qemu-riscv' }
+          - { arch: aarch64, triple: aarch64-none-elf, qemu: 'xim:qemu-arm'   }
+          # ⭐ ALL THREE ROWS NAME AN xlings PACKAGE FROM 0.5.0, AND THE THIRD
+          # ONE TOOK A NEW PACKAGE TO GET THERE.
           #
-          # The other two emulators are xlings packages because xPack publishes
-          # QEMU per target family and the index carries what it publishes.
-          # xPack has no x86 build, so there is no `xim:qemu-x86` to install —
-          # see .agents/docs/2026-08-21-freestanding-outstanding-four.md §4 in
-          # the engine repository, where building one is staged work.
-          #
-          # Naming apt here rather than quietly relying on whatever is on the
-          # runner keeps the difference visible: this row is the one whose
-          # emulator the ecosystem does not yet own.
-          - { arch: x86_64,  triple: x86_64-none-elf,  qemu: '',              apt: 'qemu-system-x86' }
+          # xPack publishes QEMU per target family and has no x86 build, so
+          # until now this row installed `qemu-system-x86` from apt and ran the
+          # emulator by hand. That made it the one row whose result depended on
+          # what Ubuntu happened to ship. `mcpplibs/qemu-x86` builds
+          # `qemu-system-x86_64` from source for five hosts, `xim:qemu-x86`
+          # carries it, and the row is now the same shape as the other two.
+          - { arch: x86_64,  triple: x86_64-none-elf,  qemu: 'xim:qemu-x86'  }
     env:
       MCPP_VERSION: 2026.8.21.1
       XLINGS_VERSION: v2026.8.17.2
@@ -110,19 +107,13 @@ jobs:
       # runner through mcpp's own — an emulator present in only one of them
       # answers "not installed" from the other.
       #
-      # The two packages are different builds: xPack compiles QEMU per target
-      # family, so `qemu-riscv` carries only the two RISC-V emulators and
-      # `qemu-arm` only the two Arm ones. Measured; no single package runs both.
+      # The three packages are different builds, one per target family:
+      # `qemu-riscv` carries the RISC-V emulators, `qemu-arm` the Arm ones and
+      # `qemu-x86` the x86_64 one. Measured; no single package runs all three.
       - name: Install the emulator
         run: |
-          if [ -n "${{ matrix.qemu }}" ]; then
-            xlings install ${{ matrix.qemu }} -y
-            XLINGS_HOME="$HOME/.mcpp/registry" xlings install ${{ matrix.qemu }} -y
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ${{ matrix.apt }}
-            qemu-system-x86_64 --version | head -1
-          fi
+          xlings install ${{ matrix.qemu }} -y
+          XLINGS_HOME="$HOME/.mcpp/registry" xlings install ${{ matrix.qemu }} -y
 
       - name: The layer builds for ${{ matrix.arch }}
         run: |
@@ -148,21 +139,12 @@ jobs:
         working-directory: examples/switch
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.qemu }}" ]; then
-            mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log
-          else
-            # ⚠️ `mcpp build` AND THEN qemu BY HAND, BECAUSE `build.mcpp`
-            # CONFIGURES NO RUNNER FOR THIS TARGET. It asks mcpp where
-            # `xim:qemu-x86` landed and there is no such package; a build
-            # program that fell back to a bare `qemu-system-x86_64` would make
-            # the build depend on what happens to be installed on the machine,
-            # which is the thing the other two rows do not do.
-            mcpp build --target ${{ matrix.triple }}
-            IMG=$(find target/${{ matrix.triple }} -type f -name switch | head -1)
-            test -n "$IMG"
-            timeout -k 5 60 qemu-system-x86_64 -machine q35 -nographic -no-reboot \
-              -kernel "$IMG" 2>&1 | tee run.log
-          fi
+          # ⭐ ONE PATH FOR ALL THREE MACHINES. Until 0.5.0 this step branched:
+          # two rows went through `mcpp run` and x86_64 built and then invoked
+          # qemu by hand, because `build.mcpp` could configure no runner for a
+          # package that did not exist. The branch is gone, and with it the
+          # asymmetry that made the third machine the least-tested one.
+          mcpp run --target ${{ matrix.triple }} 2>&1 | tee run.log
           grep -q "task: arg=42"          run.log
           grep -q "witness=7 before=1234" run.log
           grep -q "switch ok"             run.log

@@ -62,4 +62,4 @@ openarch = "{{self.version}}"
 # declaring only one would make the manifest depend on the target the same way
 # a `runner` key would.
 [xlings]
-deps = ["qemu-riscv", "qemu-arm"]
+deps = ["qemu-riscv", "qemu-arm", "qemu-x86"]

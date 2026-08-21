@@ -1,5 +1,5 @@
 [package]
-name    = "switch"
+name    = "clock-study"
 version = "0.1.0"
 
 # ⚠️ NO `[build] target`. The probe's whole claim is that one project serves two
@@ -40,7 +40,9 @@ sources = ["src/machine_x86_64.cpp", "src/boot_x86_64.S"]
 # the implementation for whatever `--target` this build was given. That is the
 # property the probe exists to demonstrate, so it is stated here rather than
 # worked around.
-openarch = { path = "../.." }
+# ⚠️ NO DEPENDENCY ON openarch, AND THAT IS THE METHOD. This study exists to
+# decide whether a clock belongs in that layer; building it against the layer
+# would answer the question by assuming it.
 
 # ⚠️ THE EMULATORS ARE DECLARED, AND THE PROBE DOES NOT WORK WITHOUT THIS.
 #

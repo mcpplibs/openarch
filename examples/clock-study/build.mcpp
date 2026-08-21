@@ -69,14 +69,19 @@ int main() {
     // those ARE installed with the package. This project has no board package —
     // none serves three machines — so it declares them itself.
     //
-    // ⚠️ AND IT CANNOT WARN. A build program's output reaches the user only
-    // when it FAILS: mcpp captures the process and prints what it captured
-    // solely on a non-zero exit. A `std::cerr` note here was written, measured,
-    // and removed — it printed nothing on the very builds that needed it, which
-    // is worse than no note at all because it looks like a fix. Failing instead
-    // would be wrong too: `mcpp build` has no need of an emulator.
+    // ⚠️ IT USED NOT TO BE ABLE TO SAY SO, AND THAT GAP IS NOW CLOSED.
     //
-    // So the README carries it, and this comment records why it has to.
+    // A build program's output reaches the user only when it FAILS: mcpp
+    // captures the process and prints what it captured solely on a non-zero
+    // exit. A `std::cerr` note here was written, measured, and removed — it
+    // printed nothing on the very builds that needed it, which is worse than no
+    // note at all because it looks like a fix. Failing instead would be wrong
+    // too: `mcpp build` has no need of an emulator.
+    //
+    // mcpp 2026.8.21.2 added `mcpp::warning()` for exactly this: a program that
+    // handled a condition correctly and still has something to say. The `else`
+    // branch below is what that channel exists for, and it survives the build
+    // cache, so it does not appear once and then look resolved.
     if (const char* dir = mcpp::xpkg_dir("xim", pkg); dir && *dir) {
         mcpp::runner(std::format("{}/bin/qemu-system-{}", dir, sys).c_str());
         // ⚠️ THE MACHINE TYPE IS NOT UNIVERSAL. `virt` is the para-virtual
@@ -99,6 +104,12 @@ int main() {
         // instruction: with `-kernel` and no `-bios` it runs the image directly.
         if (arch == "riscv64") { mcpp::runner("-bios"); mcpp::runner("none"); }
         mcpp::runner("-kernel");
+    } else {
+        mcpp::warning(std::format(
+            "{} is not installed, so `mcpp run --target {}-none-elf` has no "
+            "runner. `mcpp build` is unaffected. Install the three emulators "
+            "once:  xlings install qemu-riscv qemu-arm qemu-x86 -y",
+            pkg, arch).c_str());
     }
 
     mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");

@@ -1,0 +1,10 @@
+# Pairs that must stay byte-identical from a marker onward, checked by
+# mcpp's tools/lint-ci-assertions.sh (rule R2).
+#
+# ⚠️ THIS FILE EXISTS BECAUSE 0.5.0 SHIPPED A TEMPLATE WHOSE BUILD PROGRAM
+# DISAGREED WITH ITS OWN README. The example's build program was updated and
+# the template's copy was not; the fix is not "be more careful", which had
+# already been tried, but to assert sameness.
+#
+# Format: <a>TAB<b>TAB<marker>
+examples/switch/build.mcpp	templates/three-machines/build.mcpp.in	// The emulator.

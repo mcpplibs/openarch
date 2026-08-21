@@ -14,7 +14,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-riscv64"
-version     = "0.5.1"
+version     = "0.6.0"
 description = "openarch's riscv64 backend: the instructions behind the ABI"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

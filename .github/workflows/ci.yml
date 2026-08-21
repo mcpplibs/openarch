@@ -41,7 +41,7 @@ jobs:
           # carries it, and the row is now the same shape as the other two.
           - { arch: x86_64,  triple: x86_64-none-elf,  qemu: 'xim:qemu-x86'  }
     env:
-      MCPP_VERSION: 2026.8.21.1
+      MCPP_VERSION: 2026.8.21.2
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -110,6 +110,33 @@ jobs:
       # The three packages are different builds, one per target family:
       # `qemu-riscv` carries the RISC-V emulators, `qemu-arm` the Arm ones and
       # `qemu-x86` the x86_64 one. Measured; no single package runs all three.
+      # ⭐ BEFORE THE EMULATOR IS INSTALLED, AND THAT ORDER IS THE ASSERTION.
+      #
+      # `[xlings] deps` is a DECLARATION, not an install trigger, so on a clean
+      # machine `xpkg_dir` answers empty and this project's build program
+      # configures no runner. That is correct and it used to be SILENT: mcpp
+      # prints a build program's output only on a non-zero exit, so a
+      # `std::cerr` note printed nothing on exactly the builds that needed it.
+      #
+      # mcpp 2026.8.21.2's `mcpp::warning()` is the channel. This step is the
+      # only place the ecosystem can observe it, because every later step has
+      # the emulator — so it runs here, once, and asserts the sentence a first
+      # -time user sees.
+      - name: A clean machine is told what is missing
+        working-directory: examples/switch
+        run: |
+          set -euo pipefail
+          COLD=$(mktemp -d)
+          MCPP_HOME="$COLD" mcpp build --target ${{ matrix.triple }} 2>&1 | tee cold.log
+          grep -q "is not installed" cold.log \
+            || { cat cold.log; echo "the build program said nothing about the missing emulator"; exit 1; }
+          grep -q "xlings install" cold.log \
+            || { cat cold.log; echo "the advisory does not name the command that fixes it"; exit 1; }
+          # An advisory is not an error: the build still succeeded.
+          grep -q "Finished" cold.log \
+            || { cat cold.log; echo "the build did not finish"; exit 1; }
+          rm -rf "$COLD" target
+
       - name: Install the emulator
         run: |
           xlings install ${{ matrix.qemu }} -y
@@ -188,7 +215,10 @@ jobs:
       # while mcpp wants a native path — a mismatch this repository has been
       # bitten by before.
       - name: The template generates a project that builds for all three machines
-        if: matrix.arch == 'riscv64'
+        # The claim here is host-independent — the template's CONTENT builds for
+        # all three machines — so one row is the right place for it. The per-row
+        # claim, that it RUNS, is the separate step below.
+        if: matrix.arch == 'riscv64'   # ci-lint: allow-r1: host-independent claim
         run: |
           set -euo pipefail
           T=templates/three-machines
@@ -255,6 +285,39 @@ jobs:
       # The same source produced that output. Asserted rather than trusted: a
       # probe that had quietly grown a per-architecture branch would still pass
       # every line above, and the gate would be measuring two programs.
+      # ⚠️ ONE PIECE OF LOGIC LIVING IN TWO FILES IS WHAT SHIPPED 0.5.0's DEFECT:
+      # the example's build program was updated and the template's copy was not,
+      # so the template's README claimed something its own program could not do.
+      #
+      # The fix is not "be more careful" — that had already been tried once. The
+      # pairs are declared in `.ci-identical-files` and asserted here.
+      - name: Files declared identical are identical
+        run: |
+          set -euo pipefail
+          test -s .ci-identical-files
+          n=0
+          while IFS=$'\t' read -r a b marker; do
+            case "${a:-}" in ''|'#'*) continue ;; esac
+            test -f "$a" && test -f "$b" || { echo "declared pair missing a side: $a / $b"; exit 1; }
+            # ⚠️ `grep -F` + `tail`, NOT a sed address. The marker is a line of
+            # C++ and contains `/`, which sed reads as the end of its pattern —
+            # measured: `unknown command: '/'`, both sides empty, and the diff
+            # would then have PASSED. That is the emptiness-as-success shape
+            # this repository has already been bitten by once.
+            la=$(grep -nF -m1 "$marker" "$a" | cut -d: -f1)
+            lb=$(grep -nF -m1 "$marker" "$b" | cut -d: -f1)
+            test -n "$la" && test -n "$lb" \
+              || { echo "marker '$marker' not found in $a or $b"; exit 1; }
+            tail -n +"$la" "$a" > /tmp/ia
+            tail -n +"$lb" "$b" > /tmp/ib
+            test -s /tmp/ia && test -s /tmp/ib \
+              || { echo "marker '$marker' matched an empty tail in $a or $b"; exit 1; }
+            diff -u /tmp/ia /tmp/ib || { echo "$a and $b diverge after '$marker'"; exit 1; }
+            n=$((n+1))
+          done < .ci-identical-files
+          test "$n" -ge 1 || { echo ".ci-identical-files declared no pairs"; exit 1; }
+          echo "$n declared pair(s) identical"
+
       - name: The probe is one source, and the layering is a directory tree
         run: |
           set -euo pipefail
@@ -347,7 +410,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.1
+      MCPP_VERSION: 2026.8.21.2
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -437,7 +500,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.1
+      MCPP_VERSION: 2026.8.21.2
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:

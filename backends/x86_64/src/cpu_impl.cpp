@@ -37,6 +37,12 @@ namespace {
 // `swapgs` reads its own pointer from `IA32_GS_BASE`. Using the other one
 // produces a per-CPU pointer that is correct only after a syscall.
 constexpr unsigned kIa32GsBase = 0xC0000101u;
+// ⚠️ `FS` AND NOT `GS`, AND ON THIS MACHINE THAT IS THE WHOLE DIFFERENCE
+// BETWEEN THE TWO SLOTS. The System V ABI puts a program's thread-local storage
+// at `%fs`; a kernel's per-CPU structure conventionally sits at `%gs`, which is
+// also what `swapgs` exists to exchange on entry. Two registers, so unlike
+// riscv64 the two slots here do not compete.
+constexpr unsigned kIa32FsBase = 0xC0000100u;
 
 inline arch_u64 rdmsr(unsigned msr) noexcept {
     unsigned lo, hi;
@@ -106,4 +112,12 @@ extern "C" void arch_cpu_fence(int b) {
 
         default: break;
     }
+}
+
+extern "C" void* arch_cpu_tls(void) {
+    return reinterpret_cast<void*>(rdmsr(kIa32FsBase));
+}
+
+extern "C" void arch_cpu_set_tls(void* p) {
+    wrmsr(kIa32FsBase, reinterpret_cast<arch_u64>(p));
 }

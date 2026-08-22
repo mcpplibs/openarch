@@ -115,10 +115,25 @@ void probe_trap() {
 // continues, which is what catches a backend that emitted an instruction the
 // machine does not have.
 int g_percpu_area = 0;
+int g_tls_area    = 0;
 
 void probe_cpu() {
     arch::set_percpu(&g_percpu_area);
     const bool same = (arch::percpu() == &g_percpu_area);
+
+    // ⭐ THE SECOND SLOT, AND THE ASSERTION IS THAT IT IS A SECOND SLOT.
+    //
+    // Round-tripping it alone would pass on a backend where `tls` and `percpu`
+    // are the same register — which on riscv64 they ARE, by convention, and
+    // abi.h records why that matters. So the check is that BOTH hold their own
+    // value at the same time, which is exactly what fails when one aliases the
+    // other. On riscv64 this is expected to fail until the backend moves the
+    // per-CPU pointer to `sscratch`; the point of the check is that the day it
+    // matters, a program says so instead of reading its thread-locals out of a
+    // per-CPU structure.
+    arch::set_tls(&g_tls_area);
+    const bool tls_ok      = (arch::tls() == &g_tls_area);
+    const bool distinct_ok = (arch::percpu() == &g_percpu_area);
 
     arch::fence(arch::barrier::memory);
     arch::fence(arch::barrier::store);
@@ -126,6 +141,9 @@ void probe_cpu() {
     arch::fence(arch::barrier::fetch);
 
     machine::print(same ? "cpu: percpu round-trips\n" : "cpu: percpu FAILED\n");
+    machine::print(tls_ok ? "cpu: tls round-trips\n" : "cpu: tls FAILED\n");
+    machine::print(distinct_ok ? "cpu: the two slots are distinct\n"
+                               : "cpu: the two slots ALIAS\n");
     machine::print("cpu: four barriers accepted\n");
 }
 

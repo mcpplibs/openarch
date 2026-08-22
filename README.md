@@ -63,6 +63,8 @@ main: back, witness=7 before=1234
 trap: raising
 trap: back, witness=1
 cpu: percpu round-trips
+cpu: tls round-trips
+cpu: the two slots are distinct
 cpu: four barriers accepted
 switch ok
 ```
@@ -71,6 +73,21 @@ The third line is the assertion that catches a half-correct backend: a switch
 that saved the return address and the stack pointer and nothing else would
 print the first two and corrupt its caller. `before` is a `volatile` local read
 after the round trip.
+
+⭐ **`the two slots are distinct` is the line that says a comment became a
+check.** There are two pointer slots — one the PROCESSOR owns (`arch_cpu_percpu`,
+where a kernel keeps what describes this hart) and one the running CONTEXT owns
+(`arch_cpu_tls`, where the toolchain expects thread-local storage). On aarch64
+and x86_64 they are different registers and the distinction is free. On riscv64
+`tp` was being used for both, and this file's own backend carried a comment
+saying so and a constraint — *"must not be compiled into anything that also uses
+a thread pointer"* — that nothing enforced.
+
+Measured 2026-08-23: something does. An openkal implementation on this
+architecture writes `tp` so a program's `thread_local` works. The probe printed
+`cpu: the two slots ALIAS`, the per-CPU pointer moved to `mscratch` — the
+register this privilege level provides for it — and the line now reads
+`distinct` on all three.
 
 ### What the second architecture actually changed
 

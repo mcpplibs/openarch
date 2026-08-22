@@ -39,6 +39,21 @@ export namespace arch {
 inline void* percpu() noexcept          { return ::arch_cpu_percpu(); }
 inline void  set_percpu(void* p) noexcept { ::arch_cpu_set_percpu(p); }
 
+// The running CONTEXT's private pointer, which is a different question from the
+// one above and is asked by different code.
+//
+// The per-CPU slot is read by a kernel that wants to know which hart it is on.
+// This one is read by the TOOLCHAIN, on every access to a `thread_local`, and
+// it is set by whoever creates the context. Where a program carries no loader,
+// that is the openkal implementation beneath it.
+//
+// ⚠️ On riscv64 the two slots want the same register (`tp`), and abi.h records
+// the measurement that made the conflict real rather than theoretical. Naming
+// them separately is what lets an implementation choose; it does not make the
+// register conflict go away.
+inline void* tls() noexcept             { return ::arch_cpu_tls(); }
+inline void  set_tls(void* p) noexcept  { ::arch_cpu_set_tls(p); }
+
 // The four orderings both machines can state.
 enum class barrier {
     // Everything before is ordered before everything after, as observed by

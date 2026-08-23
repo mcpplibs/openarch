@@ -151,6 +151,39 @@ void* arch_cpu_percpu(void);
 void  arch_cpu_set_percpu(void* p);
 void  arch_cpu_fence(int barrier);
 
+/* ⭐ THE OTHER POINTER SLOT: THE ONE THE RUNNING *CONTEXT* OWNS, NOT THE ONE
+ * THE PROCESSOR OWNS.
+ *
+ * `arch_cpu_percpu` is per PROCESSOR — a kernel points it at a structure that
+ * describes this hart. This pair is per CONTEXT: it is where the toolchain
+ * expects to find the thread-local storage of whatever is running now, and a
+ * program compiled with `thread_local` reads through it on every access.
+ *
+ * ⚠️ THEY ARE NOT THE SAME SLOT AND ON ONE MACHINE THEY COMPETE FOR THE SAME
+ * REGISTER. cpu_impl.cpp for riscv64 has said so since it was written:
+ *
+ *     `tp' IS A CONVENTION HERE, NOT AN ARCHITECTURAL REGISTER. [...] a kernel
+ *     may use it for its per-CPU pointer --- but a hosted program on the same
+ *     ISA would find its thread pointer there instead. [...] this backend must
+ *     not be compiled into anything that also uses a thread pointer.
+ *
+ * That warning has now been met by an actual program. Measured 2026-08-23:
+ * `openkal-opensbi`'s startup object writes `tp` so that libc++abi's
+ * `thread_local` works, because on a machine with no operating system nobody
+ * else will. Without it the first `throw` faults inside `__cxa_get_globals` and
+ * the diagnostic names an exception function and an address --- it says nothing
+ * about a thread pointer.
+ *
+ * ⇒ So the slot belongs here, beside the one it is confused with, and the two
+ * are separate operations because on aarch64 and x86_64 they are separate
+ * REGISTERS and on riscv64 they are not. An implementation that needs both on
+ * riscv64 must move the per-CPU pointer to `sscratch`; this interface makes
+ * that a decision with a name rather than a collision discovered at run time.
+ *
+ * ⚠️ Undefined before someone sets it, exactly as the per-CPU slot is. */
+void* arch_cpu_tls(void);
+void  arch_cpu_set_tls(void* p);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

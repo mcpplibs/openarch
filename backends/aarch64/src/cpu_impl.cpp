@@ -36,3 +36,17 @@ extern "C" void arch_cpu_fence(int b) {
     }
 }
 
+
+// `TPIDR_EL0` is the one a program reaches, and it is a DIFFERENT register from
+// the `TPIDR_EL1` above — so on this machine the two slots do not compete.
+// Readable and writable at EL1; readable by a program at EL0, which is what
+// makes it the thread pointer.
+extern "C" void* arch_cpu_tls(void) {
+    void* p;
+    asm volatile("mrs %0, tpidr_el0" : "=r"(p));
+    return p;
+}
+
+extern "C" void arch_cpu_set_tls(void* p) {
+    asm volatile("msr tpidr_el0, %0" :: "r"(p));
+}

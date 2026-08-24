@@ -41,7 +41,7 @@ jobs:
           # carries it, and the row is now the same shape as the other two.
           - { arch: x86_64,  triple: x86_64-none-elf,  qemu: 'xim:qemu-x86'  }
     env:
-      MCPP_VERSION: 2026.8.21.2
+      MCPP_VERSION: 2026.8.24.4
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -410,7 +410,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.2
+      MCPP_VERSION: 2026.8.24.4
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -500,7 +500,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.2
+      MCPP_VERSION: 2026.8.24.4
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:

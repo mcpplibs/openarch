@@ -1,0 +1,55 @@
+# openarch's armv7a backend: instructions, and nothing else.
+#
+# THIS PACKAGE EXPORTS NO MODULE. It defines the C entry points declared in
+# `abi/include/openarch/abi.h` and is reached only through them, exactly as the
+# other four backends are.
+#
+# THE MACHINE THAT ANSWERED THE WIDTH QUESTION.
+#
+# openarch was designed on three application-class 64-bit machines, and its
+# page-table interface carried an entry in an `arch_u64` without ever saying how
+# one is stored — `pte_encode.h` recorded the assumption as a statement of fact:
+# "a page-table entry is 64 bits on every machine here". ARMv7-A is the first
+# 32-bit machine here WITH an address space, and its short-descriptor entry is
+# 32 bits. The value fits; the storage does not. `arch_pte_entry_bytes()` was
+# added for this backend and is implemented by all five.
+#
+# Cortex-M did not settle it and could not: M-profile has an MPU and no page
+# table, so its pte group exists and refuses. A 32-bit machine WITHOUT paging
+# leaves the question exactly where it was.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch-armv7a"
+version     = "0.9.0"
+description = "openarch's armv7a backend: the instructions behind the ABI, on the first machine here whose page-table entry is 32 bits"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
+# `openarch:preemption` IS WITHHELD, AND THAT IS A STATEMENT ABOUT THIS MACHINE
+# RATHER THAN AN OMISSION.
+#
+# `arch_trap_switch` asks a trap to resume a different context. On riscv64 and
+# aarch64 the resumption address is a register the dispatcher saves and restores
+# around the switch; on Cortex-M a dedicated exception performs it. On ARMv7-A
+# it is written to the SVC stack by `srs`, so switching stacks mid-trap changes
+# which return frame is popped — well-defined only if the resumed context was
+# suspended through the same path. That is a real design, and it is not one
+# this backend has measured. A consumer that needs preemption is therefore
+# refused by name at resolution rather than linking against something that
+# compiles and misbehaves.
+#
+# This is the mechanism the Cortex-M backend already uses to withhold
+# `openarch:address-space`, applied to a different group.
+provides    = ["openarch-backend",
+               "openarch:address-space",
+               "openarch:percpu-register"]
+
+[build]
+sources = ["src/**"]
+
+[targets.openarch-armv7a]
+kind = "lib"
+
+[dependencies]
+openarch-abi = { path = "../../abi" }

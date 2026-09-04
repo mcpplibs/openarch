@@ -23,7 +23,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-cortex-m"
-version     = "0.1.0"
+version     = "0.9.0"
 description = "openarch for ARM Cortex-M: contexts, traps and barriers. No address space — M-profile has an MPU rather than an MMU."
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]

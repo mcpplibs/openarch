@@ -48,3 +48,6 @@ arch_u64 arch_pte_phys(arch_u64)             { refuse("arch_pte_phys");  return 
 void arch_pte_install_memory_attributes(void) {}
 
 }  // extern "C"
+
+// This machine has no page table, so there is no entry to size. The refusal is `provides`, not a number.
+extern "C" arch_u32 arch_pte_entry_bytes(void) { return 0; }

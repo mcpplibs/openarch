@@ -112,9 +112,32 @@ int                arch_pte_valid(arch_u64 bits);
 arch_u64 arch_pte_phys(arch_u64 bits);
 
 /* Programs whatever the machine needs before a memory type is meaningful.
- * Empty on riscv64, where the type is in the entry; writes `MAIR_EL1` on
- * aarch64, where the entry holds only an index into it. */
+ * Empty on riscv64 and armv7a, where the type is in the entry; writes
+ * `MAIR_EL1` on aarch64, where the entry holds only an index into it. */
 void arch_pte_install_memory_attributes(void);
+
+/* HOW WIDE THE MACHINE'S PAGE-TABLE ENTRY ACTUALLY IS, IN BYTES.
+ *
+ * The three functions above carry an entry in an `arch_u64` and say nothing
+ * about how it is STORED. That was invisible while every backend was a 64-bit
+ * machine with 64-bit entries, and `pte_encode.h` said so in as many words: "a
+ * page-table entry is 64 bits on every machine here". It is not. ARMv7-A's
+ * short-descriptor entry is 32 bits, and a caller who sizes a table from
+ * `sizeof(arch::pte)` builds one twice as large as the hardware walks — every
+ * second word read as an entry, with no diagnostic anywhere.
+ *
+ * The value fits in `arch_u64` on both, so the carrier did not have to change.
+ * What was missing is a way to ASK, which is what this adds. A caller writes
+ *
+ *     entries * arch_pte_entry_bytes()
+ *
+ * and gets the right size on both classes of machine.
+ *
+ * Returns 8 on riscv64, aarch64 and x86_64; 4 on armv7a. A backend with no
+ * address space (Cortex-M) returns 0, which is the same answer its `provides`
+ * already gives by withholding `openarch:address-space` — a caller that got
+ * this far has a bug in its own layering. */
+arch_u32 arch_pte_entry_bytes(void);
 
 /* ── openarch.trap ─────────────────────────────────────────────────────────
  *

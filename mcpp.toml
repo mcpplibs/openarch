@@ -33,7 +33,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch"
-version     = "0.8.1"
+version     = "0.9.0"
 description = "openarch: the architecture-mechanism layer — execution contexts, traps, per-CPU state and address spaces, as one interface over several instruction sets"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
@@ -146,6 +146,7 @@ backend-riscv64  = []
 backend-aarch64  = []
 backend-x86-64   = []
 backend-cortex-m = []
+backend-armv7a   = []
 
 [target.'cfg(all(arch = "riscv64", os = "none"))'.feature-deps.backend-auto]
 openarch-riscv64 = { path = "backends/riscv64" }
@@ -177,6 +178,14 @@ openarch-x86-64 = { path = "backends/x86_64" }
 # ⭐ The lesson is the one a new capability always carries: it has more readers
 # than the site that introduced it, and the table that BINDS it is a different
 # file from the one that DECLARES it.
+# ONE ROW SERVES BOTH ARMv7-A TRIPLES, WHICH THE SEVEN M-PROFILE ROWS BELOW DO
+# NOT. `cfg(arch = ...)` matches the triple's first component exactly, and
+# `armv7a-none-eabi` and `armv7a-none-eabihf` share it — the float ABI is in the
+# environment, not the architecture. The M-profile rows differ because each
+# profile IS a different architecture there.
+[target.'cfg(all(arch = "armv7a", os = "none"))'.feature-deps.backend-auto]
+openarch-armv7a = { path = "backends/armv7a" }
+
 [target.'cfg(all(arch = "thumbv6m", os = "none"))'.feature-deps.backend-auto]
 openarch-cortex-m = { path = "backends/cortex-m" }
 
@@ -205,3 +214,6 @@ openarch-x86-64 = { path = "backends/x86_64" }
 
 [feature-deps.backend-cortex-m]
 openarch-cortex-m = { path = "backends/cortex-m" }
+
+[feature-deps.backend-armv7a]
+openarch-armv7a = { path = "backends/armv7a" }

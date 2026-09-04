@@ -206,11 +206,80 @@ void agreement() {
              kX86Page, "x86_64 discards sub-page bits of phys");
 }
 
+
+// ─── armv7a: the machine whose entry is not eight bytes ────────────────────
+//
+// THE ANSWER TO A QUESTION THE OTHER THREE COULD NOT ASK.
+//
+// This layer was designed on three 64-bit machines with 64-bit page-table
+// entries, and `pte_encode.h` recorded that as a fact about every machine here.
+// ARMv7-A's short-descriptor entry is 32 bits, so the assertions below are as
+// much about the INTERFACE as about the encoder: the value has to fit in the
+// low half, and the storage width has to be askable.
+//
+// Cortex-M could not settle this and it is worth saying why: it is a 32-bit
+// machine with no page table at all, so its pte group exists and refuses. A
+// 32-bit machine WITHOUT paging leaves the question exactly where it was.
+void armv7a_width() {
+    using namespace arch;
+
+    constexpr arch_u64 kPage = 0x40001000ULL;   // qemu -M virt puts RAM here
+
+    const auto rw = armv7a::encode_leaf(kPage, kReadWrite, kNormal, false);
+
+    // THE WHOLE ENTRY LIVES IN THE LOW 32 BITS. If this ever fails, a caller
+    // storing the result into a 32-bit table silently loses whatever is above.
+    check((rw >> 32) == 0, "armv7a entry fits in 32 bits");
+
+    // The hand-written descriptor, read off the architecture manual rather than
+    // produced by the code under test: small page (bit 1), AP[0], TEX[0], C, B,
+    // S, and the base in bits [31:12]. Read/write at PL1 only, normal
+    // write-back memory, not executable.
+    constexpr arch_u64 kExpected =
+          (1ULL << 1)     // small page
+        | (1ULL << 0)     // XN — this mapping is not executable
+        | (1ULL << 4)     // AP[0]
+        | (1ULL << 6)     // TEX[0]
+        | (1ULL << 3)     // C
+        | (1ULL << 2)     // B
+        | (1ULL << 10)    // S
+        | kPage;
+    check_eq(rw, kExpected, "armv7a read/write normal is the manual's bits");
+
+    // An executable mapping clears XN, which is bit 0 — adjacent to the bit
+    // that says "small page" and meaning something entirely unrelated.
+    const auto rx = armv7a::encode_leaf(kPage, kReadExec, kNormal, false);
+    check((rx & 1ULL) == 0, "armv7a clears XN for an executable mapping");
+    check((rw & 1ULL) != 0, "armv7a sets XN for a non-executable mapping");
+
+    // AP[2] (bit 9) makes it read-only; AP[1] (bit 5) admits unprivileged
+    // access. Both are single bits far apart in the word, which is why they are
+    // asserted rather than described.
+    check((armv7a::encode_leaf(kPage, kRead, kNormal, false) & (1ULL << 9)) != 0,
+          "armv7a sets AP[2] for a read-only mapping");
+    check((armv7a::encode_leaf(kPage, kReadWrite, kNormal, true) & (1ULL << 5)) != 0,
+          "armv7a sets AP[1] for a user mapping");
+
+    check(armv7a::entry_valid(rw), "armv7a small-page descriptor is valid");
+    check(!armv7a::entry_valid(0), "armv7a rejects the fault encoding");
+    check_eq(armv7a::entry_phys(armv7a::encode_leaf(kPage + 0xFFF, kReadWrite,
+                                                    kNormal, false)),
+             kPage, "armv7a discards sub-page bits of phys");
+
+    // Device memory differs, and in this format it differs by being neither
+    // cacheable nor TEX-normal — a fourth spelling of the same intent across
+    // four machines, which is the reason this layer exists.
+    check(armv7a::encode_leaf(kPage, kReadWrite, kDevice, false)
+              != armv7a::encode_leaf(kPage, kReadWrite, kNormal, false),
+          "armv7a distinguishes device from normal");
+}
+
 }  // namespace
 
 int main() {
     exact_values();
     agreement();
+    armv7a_width();
     if (g_failed == 0) std::printf("pte encoding ok\n");
     return g_failed == 0 ? 0 : 1;
 }

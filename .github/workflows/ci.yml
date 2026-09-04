@@ -488,6 +488,44 @@ jobs:
           [ "$rc" = "0" ] \
             || { echo "the scheduler reported success and exited $rc — check the semihosting exit call"; exit 1; }
 
+      # ⭐⭐ THE ONE-LINE USAGE REACHES THIS BACKEND, WHICH IS A DIFFERENT CLAIM
+      # FROM "THE BACKEND WORKS".
+      #
+      # `examples/preempt` names `openarch-cortex-m` by PATH, so it exercises
+      # the backend and says nothing about whether a CONSUMER can get it. The
+      # documented one-line usage is `openarch = "<version>"`, and that goes
+      # through `backend-auto` — a table in the ROOT manifest that is a
+      # different file from the one declaring the backend.
+      #
+      # Measured on 0.8.0 as first written: a fresh project against the
+      # published package got
+      #
+      #     error: no package provides capability 'openarch-backend'
+      #
+      # The backend was in the tarball and unreachable. `cfg(arch = ...)`
+      # compares exactly and there is no glob, so M-profile needs one row per
+      # arch spelling; this step is what keeps all five bound.
+      - name: The one-line usage reaches the Cortex-M backend
+        run: |
+          set -euo pipefail
+          n=0
+          for t in thumbv6m-none-eabi thumbv7m-none-eabi thumbv7em-none-eabi \
+                   thumbv8m.base-none-eabi thumbv8m.main-none-eabi; do
+            D=$(mktemp -d); mkdir -p "$D/src"
+            printf '[package]\nname="oap"\nversion="0.1.0"\n[build]\ntarget="%s"\nsources=["src/main.cpp"]\n[target.%s]\nsysroot=""\n[dependencies]\nopenarch = { path = "%s" }\n' \
+              "$t" "$t" "$PWD" > "$D/mcpp.toml"
+            printf 'int main(){return 0;}\n' > "$D/src/main.cpp"
+            ( cd "$D" && mcpp build --verbose > v.log 2>&1 ) || true
+            c=$(grep -c 'openarch-cortex-m' "$D/v.log" || true)
+            [ "$c" -gt 0 ] || {
+              echo "::error::$t resolved no Cortex-M backend through backend-auto"
+              tail -20 "$D/v.log"; exit 1; }
+            echo "  ok  $t binds the backend ($c compile lines)"
+            n=$((n+1)); rm -rf "$D"
+          done
+          # A count, because a loop that ran zero times also reaches this line.
+          [ "$n" = "5" ] || { echo "::error::checked $n arch spellings, expected 5"; exit 1; }
+
       # ⭐ THE EXAMPLE CONTAINS NO ASSEMBLY, AND THAT IS AN ASSERTION RATHER
       # THAN A REMARK. Its first version hand-wrote thirty lines of PendSV,
       # because the layer had no primitive for "switch the context this trap

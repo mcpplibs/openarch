@@ -161,6 +161,7 @@ answer as `MAIR_EL1`, arrived at for a different reason.
 | The switch reaches, returns and preserves; traps classify; per-CPU round-trips; four barriers are accepted | One probe source, three emulators, in CI |
 | A trap resumes a **different** context | The same probe, on all three; the assertion is a counter the *other* context advanced, not that both printed |
 | The partial backend preempts | `examples/preempt` on `mps2-an385`, in its own job: two tasks that never yield, each proving it was interrupted |
+| The one-line usage REACHES that backend | Five fresh projects, one per M-profile arch spelling: `openarch = "<version>"` and nothing else must pull the backend in |
 | The entry encodings | A host unit test that holds **all three** encoders at once |
 | The two faces declare one library | A host test of `static_assert`s, on a machine with no backend at all |
 | The ABI's frozen layout | `tests/abi_shape.cpp`, in byte offsets rather than in `sizeof` of another member |

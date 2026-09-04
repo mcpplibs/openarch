@@ -33,7 +33,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch"
-version     = "0.8.0"
+version     = "0.8.1"
 description = "openarch: the architecture-mechanism layer — execution contexts, traps, per-CPU state and address spaces, as one interface over several instruction sets"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
@@ -142,9 +142,10 @@ default = ["backend-auto"]
 backend-auto     = []
 backend-external = { requires = ["openarch-backend"] }
 
-backend-riscv64 = []
-backend-aarch64 = []
-backend-x86-64  = []
+backend-riscv64  = []
+backend-aarch64  = []
+backend-x86-64   = []
+backend-cortex-m = []
 
 [target.'cfg(all(arch = "riscv64", os = "none"))'.feature-deps.backend-auto]
 openarch-riscv64 = { path = "backends/riscv64" }
@@ -154,6 +155,42 @@ openarch-aarch64 = { path = "backends/aarch64" }
 
 [target.'cfg(all(arch = "x86_64", os = "none"))'.feature-deps.backend-auto]
 openarch-x86-64 = { path = "backends/x86_64" }
+
+# ⚠️⚠️ SEVEN ROWS FOR ONE BACKEND, AND THAT IS THE MACHINE RATHER THAN A CHOICE.
+#
+# `cfg(arch = ...)` compares exactly — there is no glob — and "Cortex-M" is not
+# an instruction set: mcpp spells each M-profile row's arch differently
+# (`thumbv6m`, `thumbv7m`, `thumbv7em`, `thumbv8m.base`, `thumbv8m.main`)
+# because objects built for them are not interchangeable.
+#
+# ⚠️ THE BACKEND EXISTED BEFORE THIS TABLE KNEW ABOUT IT, WHICH IS THE WORST
+# SHAPE THIS ARRANGEMENT CAN HAVE. 0.8.0 shipped `openarch-cortex-m`, declared
+# its capabilities, and exercised it from `examples/preempt` — which names the
+# backend by PATH. A consumer of the published package writes
+# `openarch = "0.8.0"` and got no backend at all: the package was present in the
+# tarball and unreachable through the documented one-line usage. Measured from a
+# fresh project against the published index:
+#
+#     error: no package provides capability 'openarch-backend' required by
+#            'openarch'
+#
+# ⭐ The lesson is the one a new capability always carries: it has more readers
+# than the site that introduced it, and the table that BINDS it is a different
+# file from the one that DECLARES it.
+[target.'cfg(all(arch = "thumbv6m", os = "none"))'.feature-deps.backend-auto]
+openarch-cortex-m = { path = "backends/cortex-m" }
+
+[target.'cfg(all(arch = "thumbv7m", os = "none"))'.feature-deps.backend-auto]
+openarch-cortex-m = { path = "backends/cortex-m" }
+
+[target.'cfg(all(arch = "thumbv7em", os = "none"))'.feature-deps.backend-auto]
+openarch-cortex-m = { path = "backends/cortex-m" }
+
+[target.'cfg(all(arch = "thumbv8m.base", os = "none"))'.feature-deps.backend-auto]
+openarch-cortex-m = { path = "backends/cortex-m" }
+
+[target.'cfg(all(arch = "thumbv8m.main", os = "none"))'.feature-deps.backend-auto]
+openarch-cortex-m = { path = "backends/cortex-m" }
 
 # Named explicitly, so unconditional: asking for a backend by name on a target
 # it does not serve should fail while assembling it, not resolve to nothing.
@@ -165,3 +202,6 @@ openarch-aarch64 = { path = "backends/aarch64" }
 
 [feature-deps.backend-x86-64]
 openarch-x86-64 = { path = "backends/x86_64" }
+
+[feature-deps.backend-cortex-m]
+openarch-cortex-m = { path = "backends/cortex-m" }

@@ -511,7 +511,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.2
+      MCPP_VERSION: 2026.9.4.1
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -601,7 +601,7 @@ jobs:
       run:
         shell: bash
     env:
-      MCPP_VERSION: 2026.8.21.2
+      MCPP_VERSION: 2026.9.4.1
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:

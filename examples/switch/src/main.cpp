@@ -82,9 +82,15 @@ void on_trap(arch::trap_frame* f) {
     }
 }
 
-void probe_trap() {
-    arch::set_handler(&on_trap);
-    machine::print("trap: raising\n");
+// ⭐⭐ THE ONE ARCHITECTURE CONDITIONAL IN THIS FILE, AND IT IS A FUNCTION SO
+// THAT IT CAN STAY THE ONE.
+//
+// CI counts `#if defined(__` in this file and requires exactly one: what the
+// gate claims is that the probe is not two programs, and the trap instruction
+// is the single thing no portable spelling exists for. The preemption probe
+// below needs the same instruction, and writing a second conditional for it
+// would have been two programs by the letter as well as by the check.
+inline void raise_breakpoint() {
 #if defined(__riscv)
     asm volatile("ebreak");
 #elif defined(__aarch64__)
@@ -101,6 +107,12 @@ void probe_trap() {
 #else
 #  error "the probe has no breakpoint instruction for this architecture"
 #endif
+}
+
+void probe_trap() {
+    arch::set_handler(&on_trap);
+    machine::print("trap: raising\n");
+    raise_breakpoint();
     machine::print("trap: back, witness=");
     machine::print_int(g_trapped);
     machine::putc('\n');
@@ -134,18 +146,6 @@ alignas(16) unsigned char g_pre_stack[4096];
 
 volatile int g_pre_steps   = 0;   // advanced only by the preempted task
 volatile int g_pre_resumed = 0;   // set only after the trap returned elsewhere
-
-inline void raise_breakpoint() {
-#if defined(__riscv)
-    asm volatile("ebreak");
-#elif defined(__aarch64__)
-    asm volatile("brk #0");
-#elif defined(__x86_64__)
-    asm volatile("int3");
-#else
-#  error "the probe has no breakpoint instruction for this architecture"
-#endif
-}
 
 void on_preempt(arch::trap_frame* f) {
     if (arch::kind_of(*f) != arch::trap_kind::breakpoint) return;

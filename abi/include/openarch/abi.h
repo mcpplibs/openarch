@@ -181,7 +181,23 @@ int                  arch_trap_interrupts_enabled(void);
  *
  * ⚠️ `f` IS THE FRAME THE HANDLER RECEIVED. Passing a frame from a different
  * trap, or a null pointer, is undefined: a backend may read the machine state
- * the frame describes.                                                       */
+ * the frame describes.
+ *
+ * ⚠️⚠️ CALLED MORE THAN ONCE BEFORE THE TRAP RETURNS, THE FIRST `from` AND THE
+ * LAST `to` ARE THE ONES THAT APPLY. This is not a convenience; it is the only
+ * consistent answer, and getting it wrong cost this layer a defect that
+ * presented as a flake.
+ *
+ * The context being saved is the one that was interrupted, and only the FIRST
+ * call in a trap window can name it — by the second, the caller's idea of
+ * "current" has already moved. The context to resume is whatever the caller
+ * last asked for. A backend that simply overwrote both would write one task's
+ * saved stack pointer into another task's storage, losing both.
+ *
+ * It is not a theoretical window. On M-profile the switch is performed by an
+ * exception at the LOWEST priority, so it runs only once no handler is active
+ * — and two timer ticks can arrive first. Measured: the second task never ran,
+ * and the two contexts held stack pointers 32 bytes apart on one stack.       */
 void arch_trap_switch(arch_trap_frame* f, void* from, void* to);
 
 /* ── openarch.cpu ──────────────────────────────────────────────────────────

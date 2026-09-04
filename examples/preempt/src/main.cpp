@@ -66,8 +66,29 @@ void verdict() {
 // The whole of the scheduler. It runs in the timer's handler, picks the next
 // task, and hands both contexts to the layer; the switch happens when the trap
 // returns, not here.
+//
+// ⚠️⚠️ THE DEADLINE IS NOT COUNTED IN TICKS, AND COUNTING IT THAT WAY MADE THIS
+// EXAMPLE FAIL HALF THE TIME.
+//
+// The first version reported its verdict at tick 400. Under an emulator the
+// timer runs on the HOST's clock while the tasks run at whatever rate the host
+// can emulate — so on a loaded machine the ticks arrive fast and the tasks
+// execute almost nothing between them. Ticks are exactly the quantity that goes
+// UP when the thing being measured goes DOWN, so a deadline denominated in them
+// measures the host.
+//
+// Measured: twelve runs of the same image, six passing and six reporting
+// `no task observed the other` — which is the same output a backend with no
+// `arch_trap_switch` at all produces. A flake indistinguishable from the defect
+// the example exists to detect.
+//
+// ⭐ So success is reported the moment it is OBSERVED, and the tick budget
+// exists only to bound the failure. A run that never preempts still terminates;
+// a run that does terminates as soon as it can say so.
 void on_tick(arch_trap_frame* f) {
-    if (++g_ticks == 400) verdict();
+    ++g_ticks;
+    if (g_observed_preemption[0] && g_observed_preemption[1]) verdict();
+    if (g_ticks > 200000) verdict();
     const int prev = g_current;
     const int next = (prev + 1) % kTasks;
     g_current = next;
@@ -96,12 +117,19 @@ extern "C" void Reset_Handler() {
                           reinterpret_cast<void*>(static_cast<unsigned long>(i)),
                           &g_stack[i][sizeof(g_stack[i])]);
 
-    // A short period: the tasks must be interrupted many times over the window
-    // the verdict waits for.
+    // ⚠️⚠️ THE TIMER IS ARMED WITH INTERRUPTS STILL MASKED, AND
+    // `openarch_cm_enter` IS WHAT UNMASKS THEM.
+    //
+    // Between arming and entering there is no valid context to preempt: PSP
+    // still holds whatever reset left, and a tick in that window switches away
+    // from a context that does not exist. Unmasking here made the program fail
+    // about one run in three, reporting `no task observed the other` — which is
+    // the same output a backend with no `arch_trap_switch` at all produces, so
+    // the flake was indistinguishable from the defect this example detects.
+    arch_trap_enable_interrupts(0);
     board_start_tick(2000);
-    arch_trap_enable_interrupts(1);
 
     g_current = 0;
-    openarch_cm_enter(g_ctx[0]);   // does not return
+    openarch_cm_enter(g_ctx[0]);   // unmasks, and does not return
     for (;;) {}
 }

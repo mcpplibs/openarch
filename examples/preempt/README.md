@@ -87,6 +87,26 @@ void on_tick(arch_trap_frame* f) {
 CI asserts the absence: a `grep` for `asm` in `src/main.cpp` fails the build. If
 that code comes back, the primitive has stopped carrying its weight.
 
+## ⚠️⚠️ Three defects the example found after the primitive existed
+
+Each one produced the same output — `no task observed the other` — which is also
+what a backend with no `arch_trap_switch` at all produces. A message cannot tell
+them apart; the counters could.
+
+| | What happened | Fix |
+|---|---|---|
+| the entry window | The timer was armed before the first context existed. A tick there switched away from a context that was not yet valid. Failed about one run in three | `openarch_cm_enter` unmasks interrupts itself, as its last instruction |
+| the tick preempts the switch | PendSV is the lowest priority, so the tick that requested a switch can interrupt the switch and request another. The stub then held one context's stack pointer and another context's `from` | PendSV masks interrupts for the whole switch. Safe to unmask at the end: a context with interrupts masked could not have been interrupted into PendSV |
+| two ticks, one switch | PendSV runs only when no handler is active, so two ticks can arrive before one switch. A single overwritten slot crossed the contexts: measured, the two held stack pointers **32 bytes apart on one stack** | The **first** `from` and the **last** `to` win. The interrupted context is the one the first call saw as current; the context to resume is what the last call asked for |
+
+⭐ The last is now part of the interface's contract rather than this backend's
+detail, because the window it describes exists on any machine whose switch is
+deferred to a lower-priority exception.
+
+⚠️ **And the criterion is 15 consecutive runs, not one.** The first two fixes
+each raised the pass rate without reaching 1; a single green run would have
+retired either of them prematurely.
+
 ⚠️ **The board must still name `openarch_cm_pendsv` in vector slot 14.** The
 table's location is a board fact and the hardware reads it by address, so the
 package that implements the switch cannot install itself. A board that forgets

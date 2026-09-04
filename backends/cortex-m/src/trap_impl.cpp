@@ -98,7 +98,26 @@ __attribute__((used)) void* openarch_cm_pending[2] = { nullptr, nullptr };
 
 void arch_trap_switch(arch_trap_frame* f, void* from, void* to) {
     (void)f;
-    openarch_cm_pending[0] = from;
+    // ⚠️⚠️ THE FIRST `from` WINS AND THE LAST `to` WINS, AND THAT ASYMMETRY IS
+    // A FIX RATHER THAN A CHOICE.
+    //
+    // PendSV is the lowest priority, so it runs only when no handler is active
+    // — and TWO ticks can therefore arrive before one switch is performed. With
+    // a single slot overwritten by each, the pair that PendSV eventually read
+    // named the second request's `from` while the stack pointer it had already
+    // taken belonged to the first request's context. It wrote one task's stack
+    // pointer into the other task's context, and both were then lost.
+    //
+    // Measured on `mps2-an385`: `pendsv=2998` switches performed, `p1=0` — the
+    // second task never ran at all — and the addresses said why: the two
+    // contexts held stack pointers 32 bytes apart, on one stack.
+    //
+    // The interrupted context is the one the FIRST call in this window saw as
+    // current, so that is the `from` to honour; the context to resume is
+    // whatever the LAST call asked for. A scheduler that ticked twice is then
+    // consistent either way — with two tasks and two ticks the net effect is
+    // no switch, which is exactly what it asked for.
+    if (!openarch_cm_pending[0]) openarch_cm_pending[0] = from;
     openarch_cm_pending[1] = to;
     // ICSR.PENDSVSET. Taken when this handler returns — tail-chained, so the
     // hardware does not unstack and re-stack the task's frame in between.

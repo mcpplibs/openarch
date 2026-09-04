@@ -56,6 +56,33 @@
     .thumb_func
     .balign 4
 openarch_cm_pendsv:
+    /* ⚠️⚠️ MASKED FOR THE WHOLE SWITCH, AND THIS IS THE FIX FOR A DEFECT THAT
+     * PRESENTED AS A FLAKE.
+     *
+     * PendSV is the LOWEST priority, which is what makes it run after every
+     * other handler — and it is also what lets the tick that REQUESTED the
+     * switch preempt the switch itself. The tick handler then calls
+     * `arch_trap_switch` again, overwriting the pending pair, and this stub
+     * resumes holding an outgoing pointer for one context and a `from` naming
+     * another. It writes the first into the second, and both contexts are lost.
+     *
+     * Measured on `mps2-an385`: six of twelve runs of an identical image
+     * reported `no task observed the other` — the same output a backend with no
+     * `arch_trap_switch` at all produces. The counters said what the message
+     * could not: `pendsv=2997` switches performed, and both tasks stopped at a
+     * handful of iterations, spinning in the task-exit trap because their saved
+     * stack pointers no longer described a frame.
+     *
+     * ⭐ SAFE TO UNMASK UNCONDITIONALLY AT THE END. PRIMASK masks every
+     * configurable-priority exception, so a context that had interrupts masked
+     * could not have been interrupted into PendSV in the first place: on entry
+     * here PRIMASK is necessarily clear.
+     *
+     * ⚠️ It is NOT enough to make the pair atomic. The outgoing pointer is read
+     * from PSP at entry and the pair from memory after the call; making only
+     * the second indivisible leaves them describing different moments. What has
+     * to be indivisible is the switch. */
+    cpsid   i
     /* r4-r11 still hold the OUTGOING context's values: the hardware stacked
      * only the caller-saved half, and any handler between then and now restored
      * the rest in its own epilogue. */
@@ -83,6 +110,7 @@ openarch_cm_pendsv:
     ldmia   r0!, {r4-r7}                /* the low four */
     adds    r0, #16                     /* past both blocks: the hardware frame */
     msr     psp, r0
+    cpsie   i
     bx      r1
     .size   openarch_cm_pendsv, . - openarch_cm_pendsv
 
@@ -98,6 +126,24 @@ openarch_cm_pendsv:
  * ⚠️ AND IT SWITCHES THE THREAD STACK POINTER MID-FUNCTION, so nothing after
  * the `msr control` may touch this function's own stack. Everything below it is
  * register-to-register for that reason.
+ *
+ * ⚠️⚠️ IT UNMASKS INTERRUPTS ITSELF, AND THAT IS A FIX RATHER THAN A SERVICE.
+ *
+ * CALL IT WITH INTERRUPTS MASKED. Between arming a timer and arriving here
+ * there is no valid context to preempt: PSP still holds whatever reset left,
+ * and a tick in that window pends PendSV, which saves eight registers below
+ * that address and writes the result into the outgoing context — destroying the
+ * one this function is about to enter.
+ *
+ * Measured. With the example unmasking before calling this, the program did not
+ * fault: it ran one task forever and reported `no task observed the other`,
+ * about one run in three. A pass rate is not a result, and the fix is to close
+ * the window rather than to widen the timer — so the unmask is the last
+ * instruction before the branch, where no window remains.
+ *
+ * ⭐ An interrupt taken between the `cpsie` and the `bx` is harmless: PSP is
+ * valid by then, so the hardware stacks this function's own r0-r3 and PC onto
+ * the task's stack and PendSV resumes it correctly.
  *
  * It does not return. */
     .section .text.openarch_cm_enter,"ax",%progbits
@@ -125,5 +171,6 @@ openarch_cm_enter:                      /* r0 = the context block */
     adds    r0, #32                     /* drop the frame we just consumed */
     msr     psp, r0
     mov     r0, r2
+    cpsie   i                           /* see the note above: HERE, not sooner */
     bx      r1
     .size   openarch_cm_enter, . - openarch_cm_enter

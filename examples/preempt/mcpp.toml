@@ -1,0 +1,38 @@
+# A preemptive task switcher on Cortex-M.
+#
+# ⭐⭐ WHY THIS EXAMPLE AND NOT ANOTHER `switch` PROBE.
+#
+# `examples/switch` calls `arch_context_switch` and returns — a cooperative
+# round trip. It is the right probe for "does the interface hold across
+# machines", and it is the wrong one for this backend, because it never enters
+# a trap. On M-profile the trap group is exactly what changes: the vector table
+# is an array indexed by exception number rather than one entry point, and the
+# hardware stacks half the register file before the handler runs.
+#
+# So the probe here is a scheduler: SysTick interrupts, the handler picks the
+# other task, PendSV performs the switch, and the tasks observe that they were
+# interrupted rather than having yielded. Nothing short of that exercises
+# `arch_trap_*` on this machine.
+#
+# ⚠️ AND IT ASSERTS PREEMPTION RATHER THAN PROGRESS. Two tasks that each print
+# would also print if the switch never happened and one simply ran to
+# completion. The criterion is that each task observes a counter it did not
+# advance itself.
+[package]
+name    = "preempt"
+version = "0.1.0"
+
+[build]
+target  = "thumbv7m-none-eabi"
+sources = ["src/main.cpp", "src/board.cpp"]
+
+# The zero-libc tier: this program is the whole of its own environment.
+[target.thumbv7m-none-eabi]
+sysroot = ""
+
+[dependencies]
+openarch = { path = "../..", features = ["backend-external"] }
+openarch-cortex-m = { path = "../../backends/cortex-m" }
+
+[xlings]
+deps = ["xim:qemu-arm@9.2.4-1"]

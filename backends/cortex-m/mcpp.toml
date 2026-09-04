@@ -1,0 +1,49 @@
+# openarch on ARM Cortex-M — the first PARTIAL backend.
+#
+# ⭐⭐ THIS ROW IS WHY THE CAPABILITY WAS SPLIT.
+#
+# The three backends that came before are application-class machines with a
+# memory management unit, and the layer's viability was decided on two
+# primitives: context switching and the page-table entry. M-profile has the
+# first and cannot have the second — its MPU describes regions by base and
+# limit, and there is no entry that names a physical page for a walker to find.
+#
+# Refusing the machine was one option. It would have excluded the class of
+# device this layer is most useful on: a microcontroller is exactly where a
+# hand-written task switcher is otherwise re-invented per project.
+#
+# So the interface admits a partial backend, and says which parts. This package
+# declares `openarch-backend` and NOT `openarch:address-space`; a kernel that
+# needs address spaces states that and is refused by name at resolution:
+#
+#     error: no package provides capability 'openarch:address-space'
+#            required by 'mykernel'
+#
+# rather than by a wall of `undefined reference to arch_pte_*` at link time.
+[package]
+namespace   = "mcpplibs"
+name        = "openarch-cortex-m"
+version     = "0.1.0"
+description = "openarch for ARM Cortex-M: contexts, traps and barriers. No address space — M-profile has an MPU rather than an MMU."
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openarch"
+
+# ⚠️ `openarch:percpu-register` IS ABSENT TOO, AND FOR A SEPARATE REASON.
+#
+# M-profile has no TPIDR-class register. The two pointer slots this layer
+# distinguishes — the one the PROCESSOR owns and the one the running CONTEXT
+# owns — would both become plain globals, and the probe assertion that they are
+# DISTINCT would hold for a reason that says nothing about the machine. A
+# single-core part does not need per-CPU state; declaring the capability would
+# claim a property this backend cannot demonstrate.
+provides    = ["openarch-backend"]
+
+[build]
+sources = ["src/**"]
+
+[targets.openarch-cortex-m]
+kind = "lib"
+
+[dependencies]
+openarch-abi = { path = "../../abi" }

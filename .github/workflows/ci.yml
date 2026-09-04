@@ -471,9 +471,22 @@ jobs:
           # during a build, so the first build on a machine that has never
           # targeted this triple is the one that installs it.
           mcpp build --target thumbv7m-none-eabi > /dev/null 2>&1 || true
-          mcpp run --target thumbv7m-none-eabi 2>&1 | tee run.log
+          # ⚠️⚠️ NOT `mcpp run | tee`, AND THE PIPELINE IS THE POINT. `$?` after a
+          # pipeline is the LAST command's status, so `| tee` would read tee's 0
+          # and the exit check below would be vacuous — which is how this job
+          # found the defect it now guards: the example printed
+          # `both tasks observed preemption` and `mcpp run` exited 1, because
+          # the board passed `SYS_EXIT_EXTENDED`'s block to `SYS_EXIT`. Every
+          # assertion on the OUTPUT passed.
+          set +e
+          mcpp run --target thumbv7m-none-eabi > run.log 2>&1
+          rc=$?
+          set -e
+          cat run.log
           grep -q "both tasks observed preemption" run.log \
-            || { cat run.log; echo "the tasks were never interleaved"; exit 1; }
+            || { echo "the tasks were never interleaved"; exit 1; }
+          [ "$rc" = "0" ] \
+            || { echo "the scheduler reported success and exited $rc — check the semihosting exit call"; exit 1; }
 
       # ⭐ THE EXAMPLE CONTAINS NO ASSEMBLY, AND THAT IS AN ASSERTION RATHER
       # THAN A REMARK. Its first version hand-wrote thirty lines of PendSV,

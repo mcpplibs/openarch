@@ -24,9 +24,20 @@ void semihost(int op, const void* arg) {
 }  // namespace
 
 extern "C" void board_print(const char* s) { semihost(0x04, s); }
+// ⚠️⚠️ `SYS_EXIT_EXTENDED` (0x20), NOT `SYS_EXIT` (0x18), AND THE DIFFERENCE IS
+// AN EXIT STATUS THAT LOOKS RIGHT AND IS NOT.
+//
+// 0x18 takes the reason code in r1 DIRECTLY; the `{reason, code}` block is the
+// EXTENDED call, which exists because a 32-bit r1 cannot carry both a reason and
+// a status. Passing the block to 0x18 prints everything correctly and then
+// reports the WRONG status.
+//
+// Measured: this example printed `both tasks observed preemption` and
+// `mcpp run` exited 1. Every assertion on the OUTPUT passed; only the exit code
+// disagreed, and only a check that reads it could tell.
 extern "C" [[noreturn]] void board_exit(int code) {
     struct { unsigned reason, code; } b{0x20026u, static_cast<unsigned>(code)};
-    semihost(0x18, &b);
+    semihost(0x20, &b);
     for (;;) {}
 }
 

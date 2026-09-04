@@ -69,3 +69,55 @@ __attribute__((used)) void openarch_cm_trap_entry(unsigned* frame,
 }
 
 }  // extern "C"
+
+// ── Preemption: pending the switch rather than performing it ────────────────
+//
+// ⭐⭐ THE ONE PLACE IN THIS LAYER WHERE TWO MACHINES DO NOT SHARE A MECHANISM.
+//
+// riscv64, aarch64 and x86_64 take a trap on the interrupted context's own
+// stack, so each performs `arch_trap_switch` as a cooperative switch on the way
+// out of its dispatcher and the exception return then finds the new context's
+// frame. M-profile cannot: the handler runs on MSP while the task runs on PSP,
+// so swapping the handler's registers changes the handler's stack and the
+// exception return unstacks a frame belonging to nobody.
+//
+// Measured, before this backend had the primitive: calling
+// `arch_context_switch` from PendSV builds, boots, and reports that neither of
+// two tasks ever observed the other. Nothing failed — the tasks were simply
+// never interleaved, and only a counter assertion could tell the difference.
+//
+// What the machine offers instead is exactly the interface's own sentence about
+// the two primitives: PendSV pended from thread mode is taken AT ONCE, and
+// pended from a handler is taken WHEN THAT HANDLER EXITS. So both functions
+// pend it, and the hardware supplies the difference.
+extern "C" {
+
+// Read by `arch_context_switch` and by the PendSV stub. Two words, and the
+// spelling is an array rather than a struct because the assembly indexes it.
+__attribute__((used)) void* openarch_cm_pending[2] = { nullptr, nullptr };
+
+void arch_trap_switch(arch_trap_frame* f, void* from, void* to) {
+    (void)f;
+    openarch_cm_pending[0] = from;
+    openarch_cm_pending[1] = to;
+    // ICSR.PENDSVSET. Taken when this handler returns — tail-chained, so the
+    // hardware does not unstack and re-stack the task's frame in between.
+    *reinterpret_cast<volatile unsigned*>(0xE000ED04u) = 1u << 28;
+}
+
+// Called by the PendSV stub with the outgoing context's saved stack pointer,
+// and answering with the incoming one.
+//
+// ⚠️ AN UNREQUESTED PendSV IS A NO-OP RATHER THAN AN ERROR. A board may pend it
+// for its own reasons, and returning the outgoing pointer unchanged saves and
+// restores the same context — which is what "nothing was requested" means.
+__attribute__((used)) void* openarch_cm_pendsv_pick(void* outgoing) {
+    void* from = openarch_cm_pending[0];
+    void* to   = openarch_cm_pending[1];
+    if (!to) return outgoing;
+    openarch_cm_pending[0] = openarch_cm_pending[1] = nullptr;
+    if (from) *static_cast<void**>(from) = outgoing;
+    return *static_cast<void**>(to);
+}
+
+}  // extern "C"

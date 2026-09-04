@@ -106,6 +106,83 @@ void probe_trap() {
     machine::putc('\n');
 }
 
+// ── Preemption: the trap RESUMES SOMEWHERE ELSE ─────────────────────────────
+//
+// ⭐⭐ THE ASSERTION THAT NEEDED A FOURTH MACHINE TO EXIST AT ALL.
+//
+// `set_handler` lets a kernel see a trap and `enable_interrupts` lets it mask
+// one. Neither can change what the trap returns to — and that is the whole of
+// preemption, which is the principal reason to use this layer on a device.
+// `arch::trap_switch` is that action, and this probe is what says it works.
+//
+// ⚠️ IT USES A SYNCHRONOUS TRAP RATHER THAN A TIMER, DELIBERATELY. A timer
+// would drag a per-machine device into a probe whose whole value is being one
+// piece of code — three interrupt controllers, three frequency sources, and an
+// assertion that could then fail for reasons having nothing to do with the
+// interface. A breakpoint is a trap on every machine here, and the property
+// under test is identical: the handler runs, calls `trap_switch`, returns, and
+// execution continues IN THE OTHER CONTEXT.
+//
+// ⚠️ AND THE ASSERTION IS THAT EACH SIDE SAW THE OTHER ADVANCE, not that both
+// printed. A `trap_switch` that did nothing at all would leave the first task
+// running, and a probe that only checked for output would report success.
+namespace {
+
+arch::context g_pre_main;
+arch::context g_pre_task;
+alignas(16) unsigned char g_pre_stack[4096];
+
+volatile int g_pre_steps   = 0;   // advanced only by the preempted task
+volatile int g_pre_resumed = 0;   // set only after the trap returned elsewhere
+
+inline void raise_breakpoint() {
+#if defined(__riscv)
+    asm volatile("ebreak");
+#elif defined(__aarch64__)
+    asm volatile("brk #0");
+#elif defined(__x86_64__)
+    asm volatile("int3");
+#else
+#  error "the probe has no breakpoint instruction for this architecture"
+#endif
+}
+
+void on_preempt(arch::trap_frame* f) {
+    if (arch::kind_of(*f) != arch::trap_kind::breakpoint) return;
+    f->pc += f->instr_len;
+    // Once: the second breakpoint (raised by the task) returns normally, which
+    // is what lets the task reach its own `context_switch` back.
+    if (g_pre_resumed) return;
+    g_pre_resumed = 1;
+    arch::trap_switch(f, g_pre_main, g_pre_task);
+}
+
+[[noreturn]] void preempted_task(void*) {
+    g_pre_steps = 1;
+    // ⚠️ NOT A `trap_switch` BACK. Returning by the cooperative primitive is
+    // what shows the two are interchangeable: a context saved by the trap path
+    // is resumed by the ordinary one, which is only true if they share a
+    // layout. Two layouts would corrupt whichever was used second, silently.
+    arch::context_switch(g_pre_task, g_pre_main);
+    for (;;) { }
+}
+
+void probe_preempt() {
+    arch::set_handler(&on_preempt);
+    arch::context_init(g_pre_task, &preempted_task, nullptr,
+                       g_pre_stack + sizeof(g_pre_stack));
+    machine::print("preempt: trapping\n");
+    // The trap below does not return here. The handler switches to the task,
+    // the task switches back, and THAT resumes this function — after the
+    // breakpoint, because the handler advanced `pc` before switching away.
+    raise_breakpoint();
+    machine::print("preempt: back, steps=");
+    machine::print_int(g_pre_steps);
+    machine::putc('\n');
+}
+
+}  // namespace
+
 // ── The per-CPU pointer and the barriers ───────────────────────────────────
 //
 // The pointer is a round trip: what a kernel stores is what it reads back, and
@@ -168,9 +245,15 @@ extern "C" int probe_main() {
     machine::putc('\n');
 
     probe_trap();
+    probe_preempt();
     probe_cpu();
 
+    // ⚠️ `g_pre_steps == 1` IS THE ONE THAT CATCHES A `trap_switch` THAT DID
+    // NOTHING. Every line above it is printed by whichever context is running;
+    // only a counter the OTHER context advanced says the trap resumed
+    // elsewhere.
     const bool ok = (g_witness == 7 && before == 1234 && g_trapped == 1
+                     && g_pre_steps == 1 && g_pre_resumed == 1
                      && arch::percpu() == &g_percpu_area);
     machine::print(ok ? "switch ok\n" : "switch FAILED\n");
     return ok ? 0 : 1;

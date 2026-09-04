@@ -37,7 +37,17 @@ repo        = "https://github.com/mcpplibs/openarch"
 # DISTINCT would hold for a reason that says nothing about the machine. A
 # single-core part does not need per-CPU state; declaring the capability would
 # claim a property this backend cannot demonstrate.
-provides    = ["openarch-backend"]
+# ⭐⭐ AND IT DOES DECLARE `openarch:preemption`, WHICH IS THE POINT OF ADMITTING
+# A PARTIAL BACKEND AT ALL.
+#
+# This machine cannot describe an address space and has no per-CPU register, and
+# it CAN change what a trap returns to — by pending PendSV, which is a mechanism
+# none of the other three has. A capability set that was all-or-nothing would
+# have had to refuse the machine over the two it lacks, and with it the ability
+# to preempt on the class of device where a hand-written task switcher is
+# otherwise re-invented per project.
+provides    = ["openarch-backend",
+               "openarch:preemption"]
 
 [build]
 sources = ["src/**"]

@@ -3,10 +3,19 @@
 The architecture-mechanism layer: execution contexts, traps and address spaces,
 as one interface over several instruction sets.
 
-**Status: 0.4.0.** Four interfaces — contexts, page-table entries, traps,
-per-CPU state and barriers — over **three** instruction sets: riscv64, aarch64
-and x86_64. One probe source builds and runs on all three and produces
-byte-identical output.
+**Status: 0.8.0.** Four interfaces — contexts, page-table entries, traps,
+per-CPU state and barriers — over **four** instruction sets: riscv64, aarch64,
+x86_64 and ARM Cortex-M. One probe source builds and runs on the first three and
+produces byte-identical output.
+
+The fourth is the first **partial** backend. M-profile has no memory management
+unit and no per-CPU register, so `openarch-cortex-m` declares neither
+`openarch:address-space` nor `openarch:percpu-register` — and a kernel that
+needs either is refused by name at resolution rather than by a wall of
+`undefined reference` at link time. It does declare `openarch:preemption`, which
+is the capability that made admitting a partial backend worth doing: a
+microcontroller is exactly where a hand-written task switcher is otherwise
+re-invented per project.
 
 ## What this is, and what it is not
 
@@ -150,6 +159,8 @@ answer as `MAIR_EL1`, arrived at for a different reason.
 | | Checked by |
 |---|---|
 | The switch reaches, returns and preserves; traps classify; per-CPU round-trips; four barriers are accepted | One probe source, three emulators, in CI |
+| A trap resumes a **different** context | The same probe, on all three; the assertion is a counter the *other* context advanced, not that both printed |
+| The partial backend preempts | `examples/preempt` on `mps2-an385`, in its own job: two tasks that never yield, each proving it was interrupted |
 | The entry encodings | A host unit test that holds **all three** encoders at once |
 | The two faces declare one library | A host test of `static_assert`s, on a machine with no backend at all |
 | The ABI's frozen layout | `tests/abi_shape.cpp`, in byte offsets rather than in `sizeof` of another member |
@@ -334,6 +345,7 @@ loop that decides whether the layer is viable.
 
 | | Status |
 |---|---|
+| A 32-bit machine with an address space | Not yet. Cortex-M is 32-bit and has no page-table entry at all, so `arch_pte_make_leaf` returning `arch_u64` has never been asked what a 32-bit entry looks like. ARMv7-A would ask it — short descriptors are 32 bits, long (LPAE) ones 64 — and mcpp carries the target rows for it since 2026.9.4.2 |
 | Timer ticks | **Answered, not implemented.** `examples/clock-study` reads a counter on all three machines directly and `FINDING.md` records the result: all three provide a monotonic counter with one address-free instruction, and only aarch64 reports how fast it runs. So `counter()` belongs here and `frequency()` and `set_deadline()` do not — the interface is narrower than the one that would have been written first |
 | Page-table **walking** | Out of scope. Building an entry is mechanism; deciding where entries go is policy, and belongs to the kernel |
 | A second backend for one ISA | The arrangement now supports it — `backend-riscv64` names a backend rather than an architecture — and riscv will want it: this backend traps into M-mode, and a kernel under SBI traps into S-mode |

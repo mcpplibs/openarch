@@ -34,5 +34,5 @@ sysroot = ""
 openarch = { path = "../..", features = ["backend-external"] }
 openarch-cortex-m = { path = "../../backends/cortex-m" }
 
-[xlings]
-deps = ["xim:qemu-arm@9.2.4-1"]
+[xlings.workspace]
+"xim:qemu-arm" = "9.2.4-1"

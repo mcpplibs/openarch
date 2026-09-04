@@ -33,6 +33,29 @@ namespace {
 
 arch_trap_handler_fn g_handler = nullptr;
 
+// ⭐⭐ PREEMPTION IS PERFORMED WHERE THE TRAP ENDS, NOT WHERE IT IS REQUESTED,
+// AND THESE TWO WORDS ARE THE WHOLE OF THAT.
+//
+// `arch_trap_switch` cannot swap anything at the point it is called: the
+// handler between it and the trap's exit is an ordinary C function, so the
+// interrupted context's callee-saved registers are either still in the CPU or
+// spilled into that handler's frame — and either way they are put back before
+// the stub returns. Swapping there would save half a register file.
+//
+// So the call records a request and the dispatcher performs it on its way out,
+// at which point "the current context" IS the interrupted one plus the trap
+// frame beneath it. A later switch back resumes inside the dispatcher, which
+// returns to the stub, which restores the saved registers from the same stack
+// and executes the exception return.
+//
+// ⚠️ THIS WORKS BECAUSE THE TRAP RUNS ON THE INTERRUPTED CONTEXT'S STACK, which
+// is true here, on riscv64 and on x86_64 — and NOT on M-profile, whose handler
+// runs on MSP while the task runs on PSP. That machine implements the same
+// interface by pending an exception instead. One name, two mechanisms.
+void* g_switch_from = nullptr;
+void* g_switch_to   = nullptr;
+
+
 // ── The interrupt descriptor table ─────────────────────────────────────────
 //
 // ⚠️ SIXTEEN BYTES PER GATE, WITH THE HANDLER'S ADDRESS SPLIT ACROSS THREE
@@ -160,6 +183,14 @@ struct Raw {
 
 }  // namespace
 
+extern "C" void arch_context_switch(void* from, void* to);
+
+extern "C" void arch_trap_switch(arch_trap_frame* f, void* from, void* to) {
+    (void)f;
+    g_switch_from = from;
+    g_switch_to   = to;
+}
+
 extern "C" void arch_trap_dispatch(arch_trap_frame* f, Raw* raw) {
     static_assert(sizeof(arch_trap_frame) == 32,
                   "trap.S reserves 32 bytes below the saved registers");
@@ -203,6 +234,22 @@ extern "C" void arch_trap_dispatch(arch_trap_frame* f, Raw* raw) {
     // same contract the other two backends have — they write `mepc` and
     // `ELR_EL1`, and this one writes the `iret` frame.
     raw->rip = f->pc;
+
+    // ⚠️ THE LAST THING, AND AFTER THE `iret` FRAME IS WRITTEN. Anything below
+    // this line would run in whichever context the switch lands in.
+    if (g_switch_to) {
+        void* from = g_switch_from;
+        void* to   = g_switch_to;
+        g_switch_from = g_switch_to = nullptr;
+        // ⭐ NOTHING TO SAVE AND RESTORE AROUND IT, WHICH IS THIS MACHINE'S ONE
+        // SIMPLIFICATION HERE. The other two keep their return address in a
+        // system register that the whole machine shares, so a trap taken while
+        // this context is away would overwrite it. x86_64 keeps RIP, CS,
+        // RFLAGS, RSP and SS on the interrupted stack, which travels with the
+        // context — so `iretq` finds this context's frame however many traps
+        // happened elsewhere in between.
+        arch_context_switch(from, to);
+    }
 }
 
 extern "C" arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h) {

@@ -7,7 +7,12 @@
 extern "C" unsigned __stack_top;
 extern "C" void Reset_Handler();
 extern "C" void openarch_cm_trap_entry(unsigned* frame, unsigned exc);
-extern "C" void PendSV_Handler();
+// ⚠️ THE BOARD NAMES openarch'S HANDLER IN SLOT 14, AND NOTHING BUT THE BOARD
+// CAN. The table's location is a board fact and the hardware reads it by
+// address, so the package that implements the switch cannot install itself. A
+// board that forgets is not broken at link time — the switch simply never
+// happens, which is why this example asserts preemption rather than progress.
+extern "C" void openarch_cm_pendsv();
 extern "C" void scheduler_tick();
 
 namespace {
@@ -30,14 +35,12 @@ extern "C" void openarch_panic(const char* what) {
     board_exit(1);
 }
 
-// ⭐ SysTick drives preemption. Its handler does no switching: it marks PendSV
-// pending and returns, so the context switch happens at the LOWEST exception
-// priority, after any other handler has finished. Switching stacks inside a
-// high-priority handler is the classic way to corrupt an unrelated interrupt.
-extern "C" void SysTick_Handler() {
-    scheduler_tick();
-    *reinterpret_cast<volatile unsigned*>(0xE000ED04) = (1u << 28);  // ICSR.PENDSVSET
-}
+// ⭐ SysTick drives preemption, and it does no switching of its own: it calls
+// the scheduler, which calls `arch_trap_switch`, which pends PendSV. The switch
+// therefore happens at the LOWEST exception priority, after every other handler
+// has finished — switching stacks inside a high-priority handler is the classic
+// way to corrupt an unrelated interrupt.
+extern "C" void SysTick_Handler() { scheduler_tick(); }
 
 // Faults route into openarch's trampoline, which normalises them into the frame
 // every handler on every architecture reads.
@@ -57,7 +60,7 @@ void* const vectors[] = {
     nullptr, nullptr, nullptr, nullptr,
     (void*)Fault_Handler,  // SVCall
     nullptr, nullptr,
-    (void*)PendSV_Handler,
+    (void*)openarch_cm_pendsv,
     (void*)SysTick_Handler,
 };
 

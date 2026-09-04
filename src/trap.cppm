@@ -138,4 +138,11 @@ inline trap_handler set_handler(trap_handler h) noexcept { return ::arch_trap_se
 inline void enable_interrupts(bool on) noexcept { ::arch_trap_enable_interrupts(on ? 1 : 0); }
 inline bool interrupts_enabled() noexcept { return ::arch_trap_interrupts_enabled() != 0; }
 
+// ⭐ `trap_switch` IS NOT HERE. It belongs beside `context_switch`, in
+// `openarch.context`: the two are the same operation performed at different
+// moments, and they take the same storage. Declaring it here would have made
+// this module depend on that one to name the type, or have made it take
+// `void*` — which is the ABI's spelling and not this face's.
+
+
 }  // namespace arch

@@ -141,6 +141,49 @@ arch_trap_handler_fn arch_trap_set_handler(arch_trap_handler_fn h);
 void                 arch_trap_enable_interrupts(int on);
 int                  arch_trap_interrupts_enabled(void);
 
+/* ⭐⭐ THE ACTION THE TRAP GROUP WAS MISSING: ACTING ON A TRAP RATHER THAN
+ * OBSERVING ONE.
+ *
+ * `arch_trap_set_handler` lets a kernel SEE a trap and
+ * `arch_trap_enable_interrupts` lets it MASK one. Neither lets it change what
+ * the trap returns to — and that is the whole of preemption, which is the
+ * principal reason to use this layer on a microcontroller at all.
+ *
+ * Call it from inside a handler. The context that was interrupted is saved and
+ * a handle to it is written through `from`; the trap then resumes `to` instead.
+ * It RETURNS NORMALLY to the handler: the switch happens when the trap does,
+ * not at the call.
+ *
+ *     void tick(arch_trap_frame* f) {
+ *         int next = pick();
+ *         if (next != current) {
+ *             int prev = current; current = next;
+ *             arch_trap_switch(f, &ctx[prev], &ctx[next]);
+ *         }
+ *     }                                 // ← the switch happens after this
+ *
+ * ⭐ THE SAME SHAPE AS `arch_context_switch`, DIFFERING ONLY IN WHEN IT TAKES
+ * EFFECT. One is "switch now"; this one is "switch on the way out". `from` and
+ * `to` are the same 128-byte, 16-aligned storage, laid out by the same
+ * `arch_context_init`, so a task can be resumed by either.
+ *
+ * ⚠️ EVERY MACHINE NEEDS IT AND EVERY MACHINE SPELLS IT DIFFERENTLY, WHICH IS
+ * WHY IT IS HERE. riscv64 edits `mepc`, aarch64 `ELR_EL1`, x86_64 the interrupt
+ * frame's `RIP`/`RSP` — and M-profile none of those, because its handler runs
+ * on a different stack from the task and the switch has to be performed by a
+ * pended exception. Three of the four implement it as a cooperative switch
+ * taken inside the trap; the fourth cannot, and that difference is exactly the
+ * thing an abstraction earns its place by hiding.
+ *
+ * Backends that implement it declare the capability `openarch:preemption`. A
+ * kernel that preempts requires it, and a machine that cannot is refused by
+ * name at resolution rather than at link time.
+ *
+ * ⚠️ `f` IS THE FRAME THE HANDLER RECEIVED. Passing a frame from a different
+ * trap, or a null pointer, is undefined: a backend may read the machine state
+ * the frame describes.                                                       */
+void arch_trap_switch(arch_trap_frame* f, void* from, void* to);
+
 /* ── openarch.cpu ──────────────────────────────────────────────────────────
  *
  * `barrier` is an `arch_barrier` — the four orderings both machines can state.

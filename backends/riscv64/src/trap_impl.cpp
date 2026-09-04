@@ -48,10 +48,33 @@ inline arch_u64 read_mtval() noexcept {
 
 
 extern "C" void arch_trap_entry();   // the stub in trap.S
+extern "C" void arch_context_switch(void* from, void* to);
 
 namespace {
 
 arch_trap_handler_fn g_handler = nullptr;
+
+// ⭐⭐ PREEMPTION IS PERFORMED WHERE THE TRAP ENDS, NOT WHERE IT IS REQUESTED,
+// AND THESE TWO WORDS ARE THE WHOLE OF THAT.
+//
+// `arch_trap_switch` cannot swap anything at the point it is called: the
+// handler between it and the trap's exit is an ordinary C function, so the
+// interrupted context's callee-saved registers are either still in the CPU or
+// spilled into that handler's frame — and either way they are put back before
+// the stub returns. Swapping there would save half a register file.
+//
+// So the call records a request and the dispatcher performs it on its way out,
+// at which point "the current context" IS the interrupted one plus the trap
+// frame beneath it. A later switch back resumes inside the dispatcher, which
+// returns to the stub, which restores the caller-saved registers from the same
+// stack and executes `mret`.
+//
+// ⚠️ THIS WORKS BECAUSE THE TRAP RUNS ON THE INTERRUPTED CONTEXT'S STACK, which
+// is true here, on aarch64 and on x86_64 — and NOT on M-profile, whose handler
+// runs on MSP while the task runs on PSP. That machine implements the same
+// interface by pending an exception instead. One name, two mechanisms.
+void* g_switch_from = nullptr;
+void* g_switch_to   = nullptr;
 
 int classify(arch_u64 cause) noexcept {
         if (cause & kCauseInterrupt) return 4;
@@ -69,6 +92,12 @@ int classify(arch_u64 cause) noexcept {
 }
 
 }  // namespace
+
+extern "C" void arch_trap_switch(arch_trap_frame* f, void* from, void* to) {
+    (void)f;
+    g_switch_from = from;
+    g_switch_to   = to;
+}
 
 // Called by trap.S with a pointer to 32 bytes of stack for the frame.
 extern "C" void arch_trap_dispatch(arch_trap_frame* f) {
@@ -101,6 +130,22 @@ extern "C" void arch_trap_dispatch(arch_trap_frame* f) {
     // resuming has to honour that. Writing it back unconditionally is simpler
     // than asking whether it changed, and identical when it did not.
     write_mepc(f->pc);
+
+    // ⚠️ THE LAST THING, AND AFTER `mepc` IS WRITTEN. Anything below this line
+    // would run in whichever context the switch lands in, which is not the one
+    // the lines above describe.
+    if (g_switch_to) {
+        void* from = g_switch_from;
+        void* to   = g_switch_to;
+        g_switch_from = g_switch_to = nullptr;
+        // ⚠️ `mepc` IS PER-CONTEXT AND THE MACHINE HAS ONE. While this context
+        // is away, another trap in another context overwrites it; on return
+        // the `mret` below would resume at that other context's address. Saved
+        // in this frame — which is this context's stack — and put back.
+        const auto epc = read_mepc();
+        arch_context_switch(from, to);
+        write_mepc(epc);
+    }
 }
 
 

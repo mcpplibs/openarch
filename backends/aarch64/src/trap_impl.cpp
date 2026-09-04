@@ -46,6 +46,29 @@ namespace {
 
 arch_trap_handler_fn g_handler = nullptr;
 
+// ⭐⭐ PREEMPTION IS PERFORMED WHERE THE TRAP ENDS, NOT WHERE IT IS REQUESTED,
+// AND THESE TWO WORDS ARE THE WHOLE OF THAT.
+//
+// `arch_trap_switch` cannot swap anything at the point it is called: the
+// handler between it and the trap's exit is an ordinary C function, so the
+// interrupted context's callee-saved registers are either still in the CPU or
+// spilled into that handler's frame — and either way they are put back before
+// the stub returns. Swapping there would save half a register file.
+//
+// So the call records a request and the dispatcher performs it on its way out,
+// at which point "the current context" IS the interrupted one plus the trap
+// frame beneath it. A later switch back resumes inside the dispatcher, which
+// returns to the stub, which restores the saved registers from the same stack
+// and executes the exception return.
+//
+// ⚠️ THIS WORKS BECAUSE THE TRAP RUNS ON THE INTERRUPTED CONTEXT'S STACK, which
+// is true here, on riscv64 and on x86_64 — and NOT on M-profile, whose handler
+// runs on MSP while the task runs on PSP. That machine implements the same
+// interface by pending an exception instead. One name, two mechanisms.
+void* g_switch_from = nullptr;
+void* g_switch_to   = nullptr;
+
+
 // ⭐ THE CLASSIFICATION READS TWO SOURCES, AND riscv NEEDS ONLY ONE.
 //
 // Which slot ran says whether the exception was synchronous, an IRQ, an FIQ or
@@ -75,6 +98,14 @@ int classify(arch_u64 slot, arch_u64 esr) noexcept {
 
 }  // namespace
 
+extern "C" void arch_context_switch(void* from, void* to);
+
+extern "C" void arch_trap_switch(arch_trap_frame* f, void* from, void* to) {
+    (void)f;
+    g_switch_from = from;
+    g_switch_to   = to;
+}
+
 // Called by the common path in trap.S. `slot` is the vector index the hardware
 // selected, which no register records.
 extern "C" void arch_trap_dispatch(arch_trap_frame* f,
@@ -100,6 +131,28 @@ extern "C" void arch_trap_dispatch(arch_trap_frame* f,
     if (g_handler) g_handler(f);
 
     write_elr(f->pc);
+
+    // ⚠️ THE LAST THING, AND AFTER `ELR_EL1` IS WRITTEN. Anything below this
+    // line would run in whichever context the switch lands in, not the one the
+    // lines above describe.
+    if (g_switch_to) {
+        void* from = g_switch_from;
+        void* to   = g_switch_to;
+        g_switch_from = g_switch_to = nullptr;
+        // ⚠️ `ELR_EL1` AND `SPSR_EL1` ARE PER-CONTEXT AND THE MACHINE HAS ONE
+        // OF EACH. While this context is away, a trap in another context
+        // overwrites both; on return the `eret` would resume at that other
+        // context's address, in its processor state. Saved on this context's
+        // own stack and put back — the same reasoning the riscv64 backend
+        // applies to `mepc`, with one more register because this machine
+        // separates the return address from the state it returns to.
+        arch_u64 elr, spsr;
+        asm volatile("mrs %0, elr_el1"  : "=r"(elr));
+        asm volatile("mrs %0, spsr_el1" : "=r"(spsr));
+        arch_context_switch(from, to);
+        asm volatile("msr elr_el1,  %0" :: "r"(elr));
+        asm volatile("msr spsr_el1, %0" :: "r"(spsr));
+    }
 }
 
 

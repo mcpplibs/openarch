@@ -1,0 +1,14 @@
+import mcpp;
+import std;
+
+int main() {
+    mcpp::link_script("mps2.ld");
+    // The bare name; mcpp searches the payload this manifest declared under
+    // `[xlings] deps` before it looks at PATH.
+    mcpp::runner("qemu-system-arm");
+    for (auto a : {"-machine", "mps2-an385", "-cpu", "cortex-m3", "-nographic",
+                   "-semihosting", "-no-reboot", "-kernel"})
+        mcpp::runner(a);
+    mcpp::rerun_if_changed("mps2.ld");
+    return 0;
+}

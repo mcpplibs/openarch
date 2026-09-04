@@ -58,5 +58,7 @@ openarch = { path = "../.." }
 # Both, on every build: which one is used is decided by the target, and
 # declaring only one would make the manifest depend on the target the same way
 # a `runner` key would.
-[xlings]
-deps = ["qemu-riscv", "qemu-arm", "qemu-x86"]
+[xlings.workspace]
+qemu-riscv = ""
+qemu-arm   = ""
+qemu-x86   = ""

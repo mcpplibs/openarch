@@ -14,7 +14,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "openarch-riscv64"
-version     = "0.6.0"
+version     = "0.7.0"
 description = "openarch's riscv64 backend: the instructions behind the ABI"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
@@ -24,7 +24,39 @@ repo        = "https://github.com/mcpplibs/openarch"
 # package's `backend` feature requires `openarch-backend` and names nobody; the
 # resolver binds the one provider in the graph. A consumer's own implementation
 # of `openarch/abi.h` declares the same line and is selected the same way.
-provides    = ["openarch-backend"]
+
+# ⭐⭐ AND WHICH GROUPS OF THAT INTERFACE THIS BACKEND IMPLEMENTS.
+#
+# `openarch-backend` says "there is a backend here". It does not say what the
+# machine can do, and until every backend could do everything it did not need
+# to: riscv64, aarch64 and x86_64 are all application-class machines with a
+# memory management unit.
+#
+# ⚠️ A Cortex-M is not. M-profile has a region-based MPU and no page table, so
+# `arch_pte_make_leaf` — one of the two primitives this layer's viability was
+# decided on — has nothing to construct. The interface either refuses that
+# machine or admits a PARTIAL backend, and refusing it would exclude the class
+# of device this layer is most useful on.
+#
+# So the groups are named. A backend declares what it implements; a kernel
+# requires what it needs; the resolver reports a mismatch by name at RESOLUTION
+# rather than as a wall of `undefined reference to arch_pte_*` at link time.
+#
+# ⭐ This is the mechanism openarch already used, applied one level finer. It is
+# also the mechanism mcpp uses for target-side layers (docs/14) and for named
+# runners: a capability is data, declared by a package, and the engine knows
+# only that capabilities exist. Three uses, one mechanism.
+# ⭐ `openarch:preemption` — the trap group's ACTION, not only its observation.
+#
+# `arch_trap_switch` makes the trap resume a different context. Every machine
+# needs it to preempt and every machine spells it differently, which is the
+# shape of thing this layer exists to hide; a backend that cannot provide it —
+# and one could exist, on a machine with no way to change what an exception
+# returns to — is refused by name at resolution rather than at link time.
+provides    = ["openarch-backend",
+               "openarch:address-space",
+               "openarch:percpu-register",
+               "openarch:preemption"]
 
 [build]
 sources = ["src/**"]

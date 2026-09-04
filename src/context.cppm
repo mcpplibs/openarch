@@ -98,6 +98,26 @@ inline void context_switch(context& from, context& to) noexcept {
     ::arch_context_switch(&from, &to);
 }
 
+// The same operation, performed when the current trap returns rather than now.
+//
+// ⭐⭐ CALLED FROM INSIDE A HANDLER. The context the trap interrupted is saved
+// into `from` and the trap resumes `to` instead; this function RETURNS
+// NORMALLY to the handler, and the switch happens when the handler does. That
+// is the whole of preemption, and it is the one thing `arch::set_handler` and
+// `arch::enable_interrupts` together cannot express — they let a kernel see a
+// trap and mask one, never act on one.
+//
+// ⭐ It sits beside `context_switch` because it takes the same storage and the
+// same `context_init` lays it out: a task may be resumed by either. The
+// difference is only when.
+//
+// ⚠️ Only backends declaring `openarch:preemption` provide it. A kernel that
+// preempts requires that capability and is refused by name at resolution on a
+// machine that cannot, rather than by `undefined reference` at link time.
+inline void trap_switch(::arch_trap_frame* f, context& from, context& to) noexcept {
+    ::arch_trap_switch(f, &from, &to);
+}
+
 // Prepares `ctx` so that switching to it begins executing `entry(arg)` on the
 // stack whose highest address is `stack_top`.
 //

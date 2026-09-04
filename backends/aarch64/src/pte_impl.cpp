@@ -33,3 +33,5 @@ extern "C" void arch_pte_install_memory_attributes(void) {
     asm volatile("msr mair_el1, %0\n\tisb" :: "r"(kMair) : "memory");
 }
 
+// AArch64 long-descriptor entries are eight bytes.
+extern "C" arch_u32 arch_pte_entry_bytes(void) { return 8; }

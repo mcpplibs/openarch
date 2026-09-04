@@ -27,3 +27,5 @@ extern "C" arch_u64 arch_pte_phys(arch_u64 bits) { return arch::riscv64::entry_p
 // coupling this layer exists to remove.
 extern "C" void arch_pte_install_memory_attributes(void) { }
 
+// Sv39/Sv48 entries are eight bytes.
+extern "C" arch_u32 arch_pte_entry_bytes(void) { return 8; }

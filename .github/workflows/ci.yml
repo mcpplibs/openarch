@@ -550,6 +550,108 @@ jobs:
   # encoders are pure functions in per-architecture namespaces, so a host build
   # holds BOTH and compares them — which is what several of the assertions are,
   # and what no single-target build could express.
+  armv7a:
+    name: the entry is four bytes (armv7a)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      # 2026.9.4.2 is the release carrying the ARMv7-A target rows. The other
+      # jobs pin 2026.9.4.1 because that is the oldest engine THEY need; pinning
+      # the newest everywhere would state a dependency that does not exist.
+      MCPP_VERSION: 2026.9.4.2
+      XLINGS_VERSION: v2026.8.17.2
+      XLINGS_NON_INTERACTIVE: '1'
+      # THE TWO FIXTURES ARE base64 AND NOT HEREDOCS, DELIBERATELY. A heredoc
+      # inside a YAML block scalar needs its terminator at column zero, which
+      # ends the block; indenting the terminator stops bash recognising it. Both
+      # spellings fail, and the second fails at run time rather than at parse
+      # time. An opaque payload has neither problem.
+      LINK_LD_B64: RU5UUlkoX3N0YXJ0KQpNRU1PUlkgeyBSQU0gKHJ3eCkgOiBPUklHSU4gPSAweDQwMDAwMDAwLCBMRU5HVEggPSAxNk0gfQpTRUNUSU9OUyB7CiAgLnRleHQgOiB7IEtFRVAoKigudGV4dC5zdGFydCkpICooLnRleHQqKSAqKC5yb2RhdGEqKSB9ID4gUkFNCiAgLmRhdGEgOiB7ICooLmRhdGEqKSB9ID4gUkFNCiAgLmJzcyAgOiB7ICooLmJzcyopICooQ09NTU9OKSB9ID4gUkFNCiAgLiA9IEFMSUdOKDE2KTsKICBfX3N0YWNrX3RvcCA9IE9SSUdJTihSQU0pICsgTEVOR1RIKFJBTSk7Cn0K
+      MAIN_CPP_B64: aW1wb3J0IG1jcHBsaWJzLm9wZW5hcmNoOwpleHRlcm4gIkMiIHVuc2lnbmVkIGFyY2hfcHRlX2VudHJ5X2J5dGVzKHZvaWQpOwoKbmFtZXNwYWNlIHsKaW5saW5lIHZvaWQgc2VtaWhvc3QoaW50IG9wLCBjb25zdCB2b2lkKiBhcmcpIHsKICAgIHJlZ2lzdGVyIGludCByMCBhc20oInIwIikgPSBvcDsKICAgIHJlZ2lzdGVyIGNvbnN0IHZvaWQqIHIxIGFzbSgicjEiKSA9IGFyZzsKICAgIGFzbSB2b2xhdGlsZSgic3ZjIDB4MTIzNDU2IiA6OiAiciIocjApLCAiciIocjEpIDogIm1lbW9yeSIpOwp9CnZvaWQgcHJpbnQoY29uc3QgY2hhciogcykgeyBzZW1paG9zdCgweDA0LCBzKTsgfQpbW25vcmV0dXJuXV0gdm9pZCBxdWl0KGludCBjb2RlKSB7CiAgICBzdHJ1Y3QgeyB1bnNpZ25lZCByZWFzb24sIGNvZGU7IH0gYnsweDIwMDI2dSwgKHVuc2lnbmVkKWNvZGV9OwogICAgc2VtaWhvc3QoMHgyMCwgJmIpOwogICAgZm9yICg7Oykge30KfQp9CgpleHRlcm4gIkMiIHZvaWQga21haW4oKSB7CiAgICBjb25zdCB1bnNpZ25lZCB3ID0gYXJjaF9wdGVfZW50cnlfYnl0ZXMoKTsKICAgIGNvbnN0IGF1dG8gZSA9IGFyY2g6Om1ha2VfbGVhZigweDQwMDAxMDAwLCBhcmNoOjpwZXJtOjpyZWFkX3dyaXRlLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGFyY2g6Om1lbW9yeV90eXBlOjpub3JtYWwsIGZhbHNlKTsKICAgIGNvbnN0IGJvb2wgb2sgPSAodyA9PSA0KSAmJiBhcmNoOjppc192YWxpZChlKQogICAgICAgICAgICAgICAgICAmJiBhcmNoOjpwaHlzX29mKGUpID09IDB4NDAwMDEwMDAgJiYgKChlLmJpdHMgPj4gMzIpID09IDApOwogICAgcHJpbnQob2sgPyAiYXJtdjdhIHB0ZSB3aWR0aCA0LCBlbnRyeSBmaXRzIDMyIGJpdHNcbiIgOiAiYXJtdjdhIHB0ZSBXUk9OR1xuIik7CiAgICBxdWl0KG9rID8gMCA6IDEpOwp9Cgphc20oIi5zZWN0aW9uIC50ZXh0LnN0YXJ0LFwiYXhcIlxuIgogICAgIi5nbG9ibCBfc3RhcnRcbiIKICAgICJfc3RhcnQ6XG4iCiAgICAiICBsZHIgc3AsID1fX3N0YWNrX3RvcFxuIgogICAgIiAgYiBrbWFpblxuIik7Cg==
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xlings
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+            | bash -s "$XLINGS_VERSION"
+          echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+
+      - name: Install mcpp
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            xlings update >/dev/null 2>&1 || true
+            if xlings install "mcpp@$MCPP_VERSION" -y; then break; fi
+            echo "index not yet carrying mcpp@$MCPP_VERSION (attempt $attempt); waiting"
+            sleep 60
+          done
+          mcpp --version
+
+      - name: Install the emulator
+        run: |
+          xlings install xim:qemu-arm -y
+          XLINGS_HOME="$HOME/.mcpp/registry" xlings install xim:qemu-arm -y
+
+      # THE QUESTION THIS BACKEND EXISTS TO ANSWER, ASKED ON THE MACHINE.
+      #
+      # openarch was designed on three 64-bit machines with 64-bit page-table
+      # entries, and `pte_encode.h` recorded that as a fact about every machine
+      # here. ARMv7-A's short-descriptor entry is 32 bits. `tests/pte_encoding`
+      # asserts the bit patterns against the architecture manual; this asserts
+      # that a program running on the machine gets the same answer through the
+      # ABI, which is the half a host test cannot reach.
+      #
+      # Cortex-M could not settle it: it is a 32-bit machine with no page table,
+      # so its pte group exists and refuses.
+      - name: A program on the machine reads back a four-byte entry
+        run: |
+          set -euo pipefail
+          QEMU=$(ls "$HOME"/.xlings/data/xpkgs/xim-x-qemu-arm/*/bin/qemu-system-arm | sort -V | tail -1)
+          D=$(mktemp -d); mkdir -p "$D/src"
+          printf '[package]\nname="soc"\nversion="0.1.0"\n[build]\ntarget="armv7a-none-eabi"\nsources=["src/main.cpp"]\n[target.armv7a-none-eabi]\nsysroot=""\n[dependencies]\nopenarch = { path = "%s" }\n[targets.soc]\nkind="bin"\nmain="src/main.cpp"\n' \
+            "$PWD" > "$D/mcpp.toml"
+          printf 'import mcpp;\nint main() { mcpp::link_script("link.ld"); return 0; }\n' > "$D/build.mcpp"
+          echo "$LINK_LD_B64"  | base64 -d > "$D/link.ld"
+          echo "$MAIN_CPP_B64" | base64 -d > "$D/src/main.cpp"
+          ( cd "$D" && mcpp build ) || { echo "::error::the armv7a probe did not build"; exit 1; }
+          elf=$(find "$D/target" -type f -name soc | head -1)
+          [ -n "$elf" ] || { echo "::error::no artefact"; exit 1; }
+          # NOT `qemu | head`: `$?` after a pipeline is the last command's, so
+          # the status assertion below would be vacuous.
+          set +e
+          timeout 30 "$QEMU" -M virt -cpu cortex-a15 -nographic -semihosting \
+                             -no-reboot -kernel "$elf" > "$D/qemu.log" 2>&1
+          rc=$?
+          set -e
+          cat "$D/qemu.log"
+          grep -q 'armv7a pte width 4' "$D/qemu.log" \
+            || { echo "::error::the machine did not report a four-byte entry"; exit 1; }
+          [ "$rc" = "0" ] || { echo "::error::booted but exited $rc"; exit 1; }
+
+      # THE LESSON 0.8.0 SHIPPED: A BACKEND IN THE PACKAGE IS NOT A BACKEND THE
+      # ONE-LINE USAGE CAN REACH. That release carried a Cortex-M backend which
+      # `backend-auto` never bound, and everything was green because nothing
+      # asked this question.
+      - name: The one-line usage reaches the armv7a backend
+        run: |
+          set -euo pipefail
+          n=0
+          for t in armv7a-none-eabi armv7a-none-eabihf; do
+            D=$(mktemp -d); mkdir -p "$D/src"
+            printf '[package]\nname="oap"\nversion="0.1.0"\n[build]\ntarget="%s"\nsources=["src/main.cpp"]\n[target.%s]\nsysroot=""\n[dependencies]\nopenarch = { path = "%s" }\n' \
+              "$t" "$t" "$PWD" > "$D/mcpp.toml"
+            printf 'int main(){return 0;}\n' > "$D/src/main.cpp"
+            ( cd "$D" && mcpp build --verbose > v.log 2>&1 ) || true
+            c=$(grep -c 'openarch-armv7a' "$D/v.log" || true)
+            [ "$c" -gt 0 ] || {
+              echo "::error::$t resolved no armv7a backend through backend-auto"
+              tail -20 "$D/v.log"; exit 1; }
+            echo "  ok  $t binds the backend ($c compile lines)"
+            n=$((n+1)); rm -rf "$D"
+          done
+          # A count, because a loop that ran zero times also reaches this line.
+          [ "$n" = "2" ] || { echo "::error::checked $n spellings, expected 2"; exit 1; }
+
   host-encoders:
     name: the page-table encoders agree (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

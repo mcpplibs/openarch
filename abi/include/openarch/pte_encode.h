@@ -36,7 +36,9 @@
  *
  * ⚠️ `arch_u64` THROUGHOUT, AND CROSS-PLATFORM CI IS WHAT MADE THAT NECESSARY.
  *
- * A page-table entry is 64 bits on every machine here. These constants were
+ * A page-table entry is 64 bits on every machine here EXCEPT armv7a, whose
+ * short-descriptor entry is 32 bits and fits in the low half; see that
+ * namespace and `arch_pte_entry_bytes()`. These constants were
  * once `unsigned long`, which is 64 bits on the systems this was written on and
  * 32 on Windows — so `1UL << 53` was a shift wider than the type: undefined,
  * and in practice silently zero rather than an error. An encoder built there
@@ -307,6 +309,78 @@ inline arch_u64 entry_phys(arch_u64 bits) noexcept {
 }
 
 }  // namespace x86_64
+
+// ─── armv7a ────────────────────────────────────────────────────────────────
+//
+// THE FIRST MACHINE HERE WHOSE ENTRY IS NOT 64 BITS.
+//
+// ARMv7-A's short-descriptor format uses a 32-bit second-level entry. Every
+// constant below therefore fits in the low half of `arch_u64`, and the carrier
+// does not have to change: what changes is that a caller can no longer assume
+// the STORAGE is eight bytes. `arch_pte_entry_bytes()` is what answers that,
+// and this namespace is the reason it exists.
+//
+// The type is entirely in the entry, as on riscv64 and unlike aarch64: there
+// is no MAIR to program, so `arch_pte_install_memory_attributes` has nothing
+// to do on this machine.
+namespace armv7a {
+
+// A small-page (4 KiB) second-level descriptor. Bit 1 selects the small-page
+// encoding and bit 0 is XN, so the two together are `0b10` for executable and
+// `0b11` for not — a pair of adjacent bits meaning unrelated things, which is
+// the kind of detail this layer exists to keep out of a kernel.
+inline constexpr arch_u64 kSmallPage = 1ULL << 1;
+inline constexpr arch_u64 kXn        = 1ULL << 0;
+
+inline constexpr arch_u64 kB   = 1ULL << 2;    // bufferable
+inline constexpr arch_u64 kC   = 1ULL << 3;    // cacheable
+inline constexpr arch_u64 kAp0 = 1ULL << 4;
+inline constexpr arch_u64 kAp1 = 1ULL << 5;
+inline constexpr arch_u64 kTex0 = 1ULL << 6;
+inline constexpr arch_u64 kAp2 = 1ULL << 9;
+inline constexpr arch_u64 kS   = 1ULL << 10;   // shareable
+
+// Bits [31:12]. Written as a 32-bit mask because the descriptor is 32 bits;
+// `arch_u64` is the carrier, not the width.
+inline constexpr arch_u64 kAddrMask = 0xFFFFF000ULL;
+
+// AP[2:1] with AP[0] set is the access-permission encoding used throughout.
+// `0b01` (AP2=0, AP1=0, AP0=1) is read/write at PL1 only; `0b011` adds
+// unprivileged access; setting AP2 makes the mapping read-only.
+inline arch_u64 encode_leaf(arch_u64 phys, int perm, int mt,
+                            bool user) noexcept {
+    arch_u64 e = kSmallPage | kAp0;
+
+    const bool writable   = (perm == 1 || perm == 3);
+    const bool executable = (perm == 2 || perm == 3);
+
+    if (user)      e |= kAp1;    // reachable from PL0
+    if (!writable) e |= kAp2;    // read-only
+    if (!executable) e |= kXn;
+
+    // Normal write-back write-allocate is TEX=0b001 with C and B set; Device
+    // (shareable) is TEX=0b000, C=0, B=1. Anything unrecognised is treated as
+    // Device, which is the restrictive choice: a mapping wrongly marked
+    // cacheable is a silent corruption, one wrongly marked Device is slow.
+    if (mt == 0) e |= kTex0 | kC | kB | kS;
+    else         e |= kB;
+
+    return e | (phys & kAddrMask);
+}
+
+// A short descriptor is invalid when bits [1:0] are 0b00. Bit 1 alone
+// distinguishes a small page from the large-page and fault encodings, which is
+// why the test is on that bit and not on bit 0 — bit 0 is XN here.
+inline bool entry_valid(arch_u64 bits) noexcept {
+    return (bits & kSmallPage) != 0;
+}
+
+inline arch_u64 entry_phys(arch_u64 bits) noexcept {
+    if (!entry_valid(bits)) return 0;
+    return bits & kAddrMask;
+}
+
+}  // namespace armv7a
 
 }  // namespace arch
 

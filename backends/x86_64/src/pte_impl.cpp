@@ -108,3 +108,6 @@ extern "C" void arch_pte_install_memory_attributes(void) {
     (void)kCr4Smap;
     asm volatile("movq %0, %%cr4" :: "r"(cr4) : "memory");
 }
+
+// x86-64 entries are eight bytes.
+extern "C" arch_u32 arch_pte_entry_bytes(void) { return 8; }
